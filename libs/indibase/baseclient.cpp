@@ -21,9 +21,13 @@
 
 #include <unistd.h>
 #include <sys/types.h>
+#ifndef _WIN32
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#else
+#include <winsock2.h>
+#endif
 #include <fcntl.h>
 
 #include "baseclient.h"
@@ -116,13 +120,23 @@ bool INDI::BaseClient::connectServer()
     m_receiveFd = pipefd[0];
     m_sendFd = pipefd[1];
 
+#ifndef _WIN32
     int result = pthread_create( &listen_thread, NULL, &INDI::BaseClient::listenHelper, this);
-
-    if (result != 0)
+	
+	if (result != 0)
     {
         perror("thread");
         return false;
     }
+#else
+	listen_thread = CreateThread(NULL, 0, &INDI::BaseClient::listenHelper, this, 0, NULL);
+	
+	if (listen_thread == NULL)
+	{
+		perror("thread");
+        return false;
+	}
+#endif
 
     sConnected = true;
     serverConnected();

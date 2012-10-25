@@ -27,9 +27,12 @@
 #include <math.h>
 #include <unistd.h>
 #include <time.h>
-#include <sys/ioctl.h>
 #include <fcntl.h>
+#ifndef _WIN32
+// TODO: What do we need these for? --BM
+#include <sys/ioctl.h>
 #include <termios.h>
+#endif
 #include <errno.h>
 
 #define POLLMS 1000

@@ -102,7 +102,7 @@ IDSnoopBLOBs (const char *snooped_device, BLOBHandling bh)
 /* "INDI" wrappers to the more generic eventloop facility. */
 
 int
-IEAddCallback (int readfiledes, IE_CBF *fp, void *p)
+IEAddCallback (FD readfiledes, IE_CBF *fp, void *p)
 {
 	return (addCallback (readfiledes, (CBF*)fp, p));
 }
@@ -659,18 +659,28 @@ IUSnoopBLOB (XMLEle *root, IBLOBVectorProperty *bvp)
  * arg is not used.
  */
 void
-clientMsgCB (int fd, void *arg)
+clientMsgCB (FD fd, void *arg)
 {
 	char buf[1024], msg[1024], *bp;
 	int nr;
 	arg=arg;
 
 	/* one read */
+#ifndef _WIN32
 	nr = read (fd, buf, sizeof(buf));
-	if (nr < 0) {
+    if (nr < 0) {
 	    fprintf (stderr, "%s: %s\n", me, strerror(errno));
 	    exit(1);
 	}
+#else
+	DWORD dnr = 0;
+	if (!ReadFile(fd, buf, sizeof(buf), &dnr, NULL))
+	{
+		fprintf (stderr, "%s: %s\n", me, GetLastError());
+		exit(1);
+	}
+	nr = (int) dnr;
+#endif
 	if (nr == 0) {
 	    fprintf (stderr, "%s: EOF\n", me);
 	    exit(1);
@@ -1129,7 +1139,12 @@ FILE * IUGetConfigFP(const char *filename, const char *dev, char errmsg[])
 
      if(stat(configDir,&st) != 0)
      {
+#ifndef _WIN32
          if (mkdir(configDir, S_IRWXU|S_IRWXG|S_IROTH|S_IXOTH) < 0)
+#else
+		 // TODO: Look at what happens with file permissions and correct if necessary. --BM
+		 if (mkdir(configDir) < 0)
+#endif
          {
              snprintf(errmsg, MAXRBUF, "Unable to create config directory. Error %s: %s\n", configDir, strerror(errno));
              return NULL;

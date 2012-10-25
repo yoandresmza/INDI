@@ -30,7 +30,9 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#ifndef _WIN32
 #include <sys/socket.h>
+#endif
 
 #include "indidevapi.h"
 #include "eventloop.h"

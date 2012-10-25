@@ -247,6 +247,7 @@ timestamp()
 
 int tty_timeout(int fd, int timeout)
 {
+#ifndef _WIN32
  if (fd == -1)
         return TTY_ERRNO;
 
@@ -273,7 +274,9 @@ int tty_timeout(int fd, int timeout)
   /* Return -2 if time expires before anything interesting happens */
   else 
     return TTY_TIME_OUT;
-  
+#else //_WIN32:
+	return TTY_ERRNO;
+#endif
 }
 
 int tty_write(int fd, const char * buf, int nbytes, int *nbytes_written)

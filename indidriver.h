@@ -23,6 +23,15 @@
 #ifndef INDIDRIVER_H
 #define INDIDRIVER_H
 
+#ifndef FD
+#ifndef _WIN32
+#define int
+#else //_WIN32:
+#include <winnt.h>
+#define FD HANDLE
+#endif //_WIN32
+#endif
+	
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -41,7 +50,7 @@ extern char *me;				/* a.out name */
 extern LilXML *clixml;			/* XML parser context */
 
 extern int dispatch (XMLEle *root, char msg[]);
-extern void clientMsgCB(int fd, void *arg);
+extern void clientMsgCB(FD fd, void *arg);
 
 /**
  * \defgroup configFunctions Configuration Functions: Functions drivers call to save and load configuraion options.

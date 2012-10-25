@@ -28,10 +28,17 @@
 
 /* signature of a callback, workproc and timer function */
 
+#ifndef _WIN32
+#define FD int
+#else
+#include <windows.h> // This also includes winsock2.h :(
+#define FD HANDLE
+#endif
+
 /** \typedef CBF
     \brief Signature of a callback function.
 */
-typedef void (CBF) (int fd, void *);
+typedef void (CBF) (FD fd, void *);
 
 /** \typedef WPF
     \brief Signature of a work procedure function.
@@ -59,7 +66,7 @@ extern void eventLoop(void);
 * \param ud a pointer to be passed to the callback function when called.
 * \return a unique callback id for use with rmCallback().
 */
-extern int addCallback (int fd, CBF *fp, void *ud);
+extern int addCallback (FD fd, CBF *fp, void *ud);
 
 /** Remove a callback function.
 *

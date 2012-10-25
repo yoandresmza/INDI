@@ -23,14 +23,16 @@ set(INCLUDE_INSTALL_DIR      "${CMAKE_INSTALL_PREFIX}/include/" CACHE PATH "The 
 set(PKGCONFIG_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}/lib${LIB_SUFFIX}/pkgconfig/" CACHE STRING "Base directory for pkgconfig files")
 
 ##################  Includes  ################################
-Include (CheckCXXSourceCompiles)
+include (CheckCXXSourceCompiles)
 include (MacroOptionalFindPackage)
 include (MacroLogFeature)
 include (MacroBoolTo01)
 include (CheckIncludeFiles)
 
 FIND_PACKAGE(ZLIB REQUIRED)
-FIND_PACKAGE(USB REQUIRED)
+if (NOT WIN32)
+FIND_PACKAGE(USB REQUIRED) # TODO: Determine which Windows port of libusb to use
+endif(NOT WIN32)
 FIND_PACKAGE(CFITSIO REQUIRED)
 
 if (NOT CFITSIO_FOUND OR CFITSIO_VERSION_MAJOR LESS 3)
@@ -58,6 +60,7 @@ include_directories( ${CMAKE_CURRENT_BINARY_DIR})
 include_directories( ${CMAKE_SOURCE_DIR})
 include_directories( ${CMAKE_SOURCE_DIR}/libs)
 include_directories( ${CMAKE_SOURCE_DIR}/libs/webcam)
+include_directories( ${ZLIB_INCLUDE_DIR})
 
 if (CFITSIO_FOUND)
   include_directories(${CFITSIO_INCLUDE_DIR})
@@ -68,6 +71,10 @@ if (NOVA_FOUND)
 endif (NOVA_FOUND)
 
 set(liblilxml_SRCS  ${CMAKE_SOURCE_DIR}/libs/lilxml.c )
+
+if (WIN32)
+    set(win32compat_SRCS  ${CMAKE_SOURCE_DIR}/libs/strsep.c )
+endif (WIN32)
 
 set(libindicom_SRCS
 	${CMAKE_SOURCE_DIR}/libs/indicom.c
@@ -102,24 +109,32 @@ set (indidriver_SRCS
         ${CMAKE_SOURCE_DIR}/libs/indibase/inditelescope.cpp
         ${CMAKE_SOURCE_DIR}/libs/indibase/indifilterwheel.cpp
         ${CMAKE_SOURCE_DIR}/libs/indibase/indifocuser.cpp
-        ${CMAKE_SOURCE_DIR}/libs/indibase/indiusbdevice.cpp
         ${CMAKE_SOURCE_DIR}/libs/indibase/indiguiderinterface.cpp
         ${CMAKE_SOURCE_DIR}/libs/indibase/indifilterinterface.cpp
-
-
-
     )
+
+if (USB_FOUND)
+set (indidriver_SRCS ${indidriver_SRCS}
+        ${CMAKE_SOURCE_DIR}/libs/indibase/indiusbdevice.cpp)
+endif (USB_FOUND)
 
 
 ######################################
 ########### INDI SERVER ##############
 ######################################
 
-set(indiserver_SRCS indiserver.c fq.c)
+set(indiserver_SRCS indiserver.c fq.c ${win32compat_SRCS})
 
 add_executable(indiserver ${indiserver_SRCS} ${liblilxml_SRCS})
 
-target_link_libraries(indiserver pthread)
+if(WIN32)
+	target_link_libraries(indiserver ws2_32)
+	# Enable jobs:
+	set_target_properties(indiserver PROPERTIES COMPILE_FLAGS
+	                      -D_WIN32_WINNT=0x0500)
+else(WIN32)
+	target_link_libraries(indiserver pthread)
+endif(WIN32)
 
 if (NOVA_FOUND)
   target_link_libraries(indiserver ${NOVA_LIBRARIES})
@@ -142,7 +157,13 @@ if (CFITSIO_FOUND)
 target_link_libraries(indi ${CFITSIO_LIBRARIES})
 endif(CFITSIO_FOUND)
 
-install(TARGETS indi LIBRARY DESTINATION ${LIB_DESTINATION})
+# Shared libraries are handled in different ways on different platforms
+if(WIN32)
+	install(TARGETS indi RUNTIME DESTINATION ${LIB_DESTINATION}
+	                     ARCHIVE DESTINATION ${LIB_DESTINATION})
+else(WIN32)
+	install(TARGETS indi LIBRARY DESTINATION ${LIB_DESTINATION})
+endif(WIN32)
 set_target_properties(indi PROPERTIES VERSION ${CMAKE_INDI_VERSION_STRING} SOVERSION ${INDI_SOVERSION})
 
 ##################################################
@@ -570,7 +591,7 @@ install(TARGETS indi_v4l_generic RUNTIME DESTINATION bin )
 endif (CFITSIO_FOUND)
 endif (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 
-#################################################################################
+################################################################################
 
 #####################################
 ############ AUX GROUP ##############
@@ -611,6 +632,10 @@ add_executable(indi_getprop ${getindi_SRCS} ${liblilxml_SRCS} ${libindicom_SRCS}
 
 target_link_libraries(indi_getprop m z)
 
+if (WIN32)
+  target_link_libraries(indi_getprop ws2_32)
+endif (WIN32)
+
 if (NOVA_FOUND)
   target_link_libraries(indi_getprop ${NOVA_LIBRARIES})
 endif (NOVA_FOUND)
@@ -639,7 +664,7 @@ install(TARGETS indi_setprop RUNTIME DESTINATION bin )
 
 #################################################################################
 
-########### evelINDI ##############
+########### evalINDI ##############
 set(evalindi_SRCS
 	${CMAKE_SOURCE_DIR}/eventloop.c
 	${CMAKE_SOURCE_DIR}/tools/compiler.c
@@ -649,6 +674,10 @@ set(evalindi_SRCS
 add_executable(indi_eval ${evalindi_SRCS} ${liblilxml_SRCS} ${libindicom_SRCS})
 
 target_link_libraries(indi_eval m z)
+
+if (WIN32)
+  target_link_libraries(indi_eval ws2_32)
+endif (WIN32)
 
 if (NOVA_FOUND)
   target_link_libraries(indi_eval ${NOVA_LIBRARIES})

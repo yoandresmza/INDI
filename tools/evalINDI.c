@@ -19,9 +19,13 @@
 #include <time.h>
 #include <unistd.h>
 #include <sys/types.h>
+#ifndef _WIN32
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#else
+#include <windows.h>
+#endif
 
 #include "indiapi.h"
 #include "lilxml.h"
@@ -175,8 +179,12 @@ main (int ac, char *av[])
 	/* build a parser context for cracking XML responses */
 	lillp = newLilXML();
 
+#ifndef _WIN32
 	/* set up to catch an io timeout function */
 	signal (SIGALRM, onAlarm);
+#else
+	// TODO: Refactor around SIGALARM
+#endif
 
 	/* send getProperties */
 	getProps(fp);
@@ -330,12 +338,16 @@ getProps(FILE *fp)
 static void
 initProps (FILE *fp)
 {
+#ifndef _WIN32
 	alarm (timeout);
 	while (allOperandsSet() < 0) {
 	    if (setOp (nxtEle (fp)) == 0)
 		alarm(timeout);
 	}
 	alarm (0);
+#else
+	// TODO: Work around alarm()
+#endif
 }
 
 /* pull apart the name and value from the given message, and set operand value.
@@ -431,6 +443,7 @@ runEval (FILE *fp)
 	char errmsg[1024];
 	double v;
 
+#ifndef _WIN32
 	alarm(timeout);
 	while (1) {
 	    if (evalExpr (&v, errmsg) < 0) {
@@ -448,6 +461,9 @@ runEval (FILE *fp)
 	    alarm(timeout);
 	}
 	alarm(0);
+#else
+	//TODO: Work around alarm()
+#endif
 
 	if (!eflag && fflag)
 	    fprintf (stderr, "%g\n", v);

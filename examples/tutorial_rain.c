@@ -30,9 +30,12 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#ifndef _WIN32
+// TODO: Why do you need network stuff in this? --BM
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#endif
 #include <zlib.h>
 
 #include "indidevapi.h"

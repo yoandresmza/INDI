@@ -33,7 +33,11 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#ifndef _WIN32
 #include <sys/ioctl.h>
+#else
+#include <winsock2.h> // TODO: Network or pipes again? --BM
+#endif
 #include <fcntl.h>
 
 /* do NOT change this to config-kstars.h! 
@@ -810,6 +814,7 @@ register int fd, sec, usec;
   struct timeval timeout;
   telfds readfds;
 
+#ifndef _WIN32
   memset((char *)&readfds,0,sizeof(readfds));
   FD_SET(fd, &readfds);
   width = fd+1;
@@ -817,5 +822,9 @@ register int fd, sec, usec;
   timeout.tv_usec = usec;
   ret = select(width,&readfds,NULL_PTR(telfds),NULL_PTR(telfds),&timeout);
   return(ret);
+#else
+  // TODO: Reimplement this to use something different than select() 
+  return (-1);
+#endif
 }
 

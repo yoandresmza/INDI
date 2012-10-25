@@ -43,13 +43,112 @@
 
 #include "eventloop.h"
 
+#ifndef _WIN32
+#define SELECT(a,b,c,d,e) select(a, b, c, d, e)
+#else //_WIN32:
+#define HANDLE_SET_MAX 64 // the capacity of a fd_set in Winsock
+typedef struct
+{
+	unsigned int n; // number of handles
+	FD handles[HANDLE_SET_MAX]; 
+} h_set;
+#define fd_set h_set
+static void nullSet(h_set* hs) { hs->n = 0; }
+#ifdef FD_ZERO
+#undef FD_ZERO
+#endif
+#define FD_ZERO(x) nullSet(x)
+static int isInSet(HANDLE h, h_set* hs)
+{
+	int i;
+	for (i = 0; i < hs->n; i++)
+		if (hs->handles[i] == h)
+			return 1;
+	return 0;
+}
+#ifdef FD_ISSET
+#undef FD_ISSET
+#endif
+#define FD_ISSET(x,y) isInSet(x,y)
+static void addToSet(HANDLE h, h_set* hs)
+{
+	if (FD_ISSET(h, hs))
+		return;
+	if (hs->n < HANDLE_SET_MAX)
+		hs->handles[(hs->n)++] = h;
+}
+#ifdef FD_SET
+#undef FD_SET
+#endif
+#define FD_SET(x,y) addToSet(x,y);
+// Emulation of select() for Windows file handles.
+// Ignores nfds, whds and ehds.
+static int hselect(int nfds, h_set* rhds, h_set* whds, h_set* ehds, struct timeval* timeout)
+{
+	struct timeval start;
+	if (timeout && timerisset(timeout))
+	{
+		gettimeofday(&start, NULL);
+		start.tv_sec += timeout->tv_sec;
+		long usec = start.tv_usec + timeout->tv_usec;
+		if (usec > 1000000)
+		{
+			start.tv_sec += 1;
+			usec -= 1000000;
+		}
+		start.tv_usec = usec;
+	}
+	
+	while (1)
+	{
+		int c = 0; // Changed count
+		DWORD bavail = 0;
+		h_set chds; // Changed handles
+		FD_ZERO(&chds);
+		int i;
+		for (i = 0; i < rhds->n; i++)
+		{
+			if (!PeekNamedPipe(rhds->handles[i], NULL, 0, 0, &bavail, 0))
+			{
+				return -1;
+			}
+			if (bavail > 0)
+			{
+				c++;
+				FD_SET(rhds->handles[i], &chds);
+				bavail = 0;
+			}
+		}
+		if (c > 0)
+		{
+			*rhds = chds;
+			return c;
+		}
+		
+		// Emulate select() timeout behaviour
+		Sleep(0);
+		if (timeout)
+		{
+			if (!timerisset(timeout))
+				return 0;
+			struct timeval now;
+			gettimeofday(&now, NULL);
+			if (!timercmp(&now, &start, <))
+				return 0;
+		}
+		// If timeout is NULL, don't return until something has changed.
+	} 
+}
+#define SELECT(a,b,c,d,e) hselect(a, b, c, d, e)
+#endif
+
 /* info about one registered callback.
  * the malloced array cback is never shrunk, entries are reused. new id's are
  * the index of first unused slot in array (and thus reused like unix' open(2)).
  */
 typedef struct {
     int in_use;				/* flag to mark this record is active */
-    int fd;				/* fd descriptor to watch for read */
+    FD fd;				/* fd descriptor to watch for read */
     void *ud;				/* user's data handle */
     CBF *fp;				/* callback function */
 } CB;
@@ -155,7 +254,7 @@ deferLoop0 (int maxms, int *flagp)
  * return a unique callback id for use with rmCallback().
  */
 int
-addCallback (int fd, CBF *fp, void *ud)
+addCallback (FD fd, CBF *fp, void *ud)
 {
 	CB *cp;
 
@@ -387,8 +486,10 @@ oneLoop()
 	for (cp = cback; cp < &cback[ncback]; cp++) {
 	    if (cp->in_use) {
 		FD_SET (cp->fd, &rfd);
+#ifndef _WIN32
 		if (cp->fd > maxfd)
 		    maxfd = cp->fd;
+#endif
 	    }
 	}
 
@@ -418,7 +519,7 @@ oneLoop()
 	    tvp = NULL;
 
 	/* check file descriptors, timeout depending on pending work */
-	ns = select (maxfd+1, &rfd, NULL, NULL, tvp);
+	ns = SELECT (maxfd+1, &rfd, NULL, NULL, tvp);
 	if (ns < 0) {
 	    perror ("select");
             return;
@@ -473,14 +574,23 @@ to (void *ud)
 }
 
 void
-stdinCB (int fd, void *ud)
+stdinCB (FD fd, void *ud)
 {
 	char c;
 
+#ifndef _WIN32
 	if (read (fd, &c, 1) != 1) {
 	    perror ("read");
             return;
 	}
+#else
+	DWORD dnr = 0;
+	if (!ReadFile(fd, &c, 1, &dnr, NULL) || (dnr != 1))
+	{
+		perror ("ReadFile");
+		return;
+	}
+#endif
 
 	switch (c) {
 	case '+': counter++; break;
@@ -506,7 +616,13 @@ stdinCB (int fd, void *ud)
 int
 main (int ac, char *av[])
 {
-	(void) addCallback (0, stdinCB, &user_a);
+	FD stdinfd;
+#ifndef _WIN32
+	stdinfd = 0;
+#else
+	stdinfd = GetStdHandle(STD_INPUT_HANDLE);
+#endif
+	(void) addCallback (stdinfd, stdinCB, &user_a);
 	eventLoop();
 	exit(0);
 }

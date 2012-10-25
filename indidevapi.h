@@ -85,6 +85,13 @@ after all, the framework must know how to call the callback correctlty.</p>
 
 */
  
+#ifndef FD
+#ifndef _WIN32
+#define FD int
+#else //_WIN32:
+#define FD void*
+#endif //_WIN32
+#endif
 
 /*******************************************************************************
  * get the data structures
@@ -341,7 +348,7 @@ typedef void (IE_WPF) (void *userpointer);
 * \param userpointer a pointer to be passed to the callback function when called.
 * \return a unique callback id for use with IERmCallback().
 */
-extern int  IEAddCallback (int readfiledes, IE_CBF *fp, void *userpointer);
+extern int  IEAddCallback (FD readfiledes, IE_CBF *fp, void *userpointer);
 
 /** \brief Remove a callback function.
 *

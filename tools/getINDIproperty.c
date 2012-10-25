@@ -15,9 +15,13 @@
 #include <time.h>
 #include <unistd.h>
 #include <sys/types.h>
+#ifndef _WIN32
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#else //_WIN32:
+#include <winsock2.h>
+#endif
 
 #include "indiapi.h"
 #include "lilxml.h"
@@ -293,7 +297,11 @@ openINDIServer (void)
 	/* lookup host address */
 	hp = gethostbyname (host);
 	if (!hp) {
+#ifndef _WIN32
 	    herror ("gethostbyname");
+#else
+		// TODO: Display error message
+#endif
 	    exit (2);
 	}
 
@@ -356,9 +364,13 @@ listenINDI ()
 {
 	char msg[1024];
 
+#ifndef _WIN32
 	/* arrange to call onAlarm() if not seeing any more defXXX */
 	signal (SIGALRM, onAlarm);
 	alarm (timeout);
+#else
+	// TODO: Work around alarm()
+#endif
 
 	/* read from server, exit if find all requested properties */
 	while (1) {
@@ -466,8 +478,12 @@ findDPE (XMLEle *root)
 				    findEle(root,dev,nam,defs[j].one,&srchs[i]);
 				if (onematch)
 				    return;		/* only one can match */
+#ifndef _WIN32
 				if (!strncmp (defs[j].vec, "def", 3))
 				    alarm (timeout);	/* reset timer if def */
+#else
+				// TODO: Work around alarm()
+#endif
 			    }
 			}
 		    }

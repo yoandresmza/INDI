@@ -14,6 +14,7 @@
 /NEWS -text
 /README -text
 /README.drivers -text
+/README.win32.txt -text
 /TODO -text
 /base64.c -text
 /base64.h -text
@@ -143,6 +144,8 @@ libs/indicom.c -text
 libs/indicom.h -text
 libs/lilxml.c -text
 libs/lilxml.h -text
+libs/strsep.c -text
+libs/strsep.h -text
 libs/webcam/PPort.cpp -text
 libs/webcam/PPort.h -text
 libs/webcam/ccvt.h -text

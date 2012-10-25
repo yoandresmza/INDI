@@ -22,7 +22,11 @@
 #include "robofocus.h"
 #include "indicom.h"
 
+#ifndef _WIN32
 #include <termios.h>
+#else
+// TODO: Serial port again?
+#endif
 #include <string.h>
 #include <sys/time.h>
 #include <unistd.h>

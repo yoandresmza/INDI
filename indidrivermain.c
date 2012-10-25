@@ -91,8 +91,13 @@ main (int ac, char *av[])
 
 	/* init */
 	clixml =  newLilXML();
-	addCallback (0, clientMsgCB, NULL);
-
+#ifndef _WIN32
+	FD stdinfd = 0;
+#else
+	FD stdinfd = GetStdHandle(STD_INPUT_HANDLE);
+#endif
+	addCallback (stdinfd, clientMsgCB, NULL);
+	
 	/* service client */
 	eventLoop();
 

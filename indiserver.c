@@ -53,10 +53,26 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+
+#ifndef _WIN32
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
 #include <arpa/inet.h>
+#define SOCKLEN_T socklen_t
+#define SD int
+#else // _WIN32:
+#include <winsock2.h> // TCP/IP
+#define SOCKLEN_T int
+#define SD SOCKET
+#include <windows.h>  // Processes, pipes, jobs...
+#ifndef JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+#define JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE 0x00002000
+#endif
+#ifdef __MINGW32__
+#include "strsep.h" // Implementation of BSD function missing in MINGW
+#endif
+#endif
 
 #include "lilxml.h"
 #include "indiapi.h"
@@ -67,6 +83,11 @@
 #define	MAXRBUF		4096		/* max read buffering here */
 #define	MAXWSIZ		4096		/* max bytes/write */
 #define	DEFMAXQSIZ	10		/* default max q behind, MB */
+
+#ifdef _WIN32
+#undef REMOTEDVR
+#define REMOTEDVR (NULL) // Invalid HANDLE value instead of invalid process ID
+#endif
 
 /* associate a usage count with queuded client or device message */
 typedef struct {
@@ -108,7 +129,7 @@ typedef struct {
     int nprops;				/* n entries in props[] */
     int allprops;			/* saw getProperties w/o device */
     BLOBHandling blob;			/* when to send setBLOBs */
-    int s;				/* socket for this client */
+    SD s;				/* socket for this client */
     LilXML *lp;				/* XML parsing context */
     FQ *msgq;				/* Msg queue */
     unsigned int nsent;				/* bytes of current Msg sent so far */
@@ -117,6 +138,7 @@ static ClInfo *clinfo;			/*  malloced pool of clients */
 static int nclinfo;			/* n total (not active) */
 
 /* info for each connected driver */
+#ifndef _WIN32
 typedef struct {
     char name[MAXINDIDEVICE];		/* persistent name */
     char dev[MAXINDIDEVICE];		/* device served by this driver */
@@ -132,32 +154,57 @@ typedef struct {
     FQ *msgq;				/* Msg queue */
     unsigned int nsent;			/* bytes of current Msg sent so far */
 } DvrInfo;
+#else
+typedef struct {
+	char name[MAXINDIDEVICE];		/* persistent name */
+	char dev[MAXINDIDEVICE];		/* device served by this driver */
+	int active;				/* 1 when this record is in use */
+	Property *sprops;			/* malloced array of props we snoop */
+	int nsprops;			/* n entries in sprops[] */
+	HANDLE pid;				/* process handle or REMOTEDVR if remote */
+	SD rfd;                 // on Windows, only a remote driver socket
+	SD wfd;                 // on Windows, only a remote driver socket
+	int efd;                // on Windows, unused
+	HANDLE rph;             // pipe reading from local driver's stdout 
+	HANDLE wph;             // pipe writing to local driver's stdin
+	HANDLE eph;             // pipe reading from local driver's stderr
+	int restarts;			/* times process has been restarted */
+	LilXML *lp;				/* XML parsing context */
+	FQ *msgq;				/* Msg queue */
+	unsigned int nsent;			/* bytes of current Msg sent so far */
+} DvrInfo;
+#endif
 static DvrInfo *dvrinfo;		/* malloced array of drivers */
 static int ndvrinfo;			/* n total */
 
 static char *me;			/* our name */
 static int port = INDIPORT;		/* public INDI port */
 static int verbose;			/* chattiness */
-static int lsocket;			/* listen socket */
+static SD lsocket;			/* listen socket */
 static char *ldir;			/* where to log driver messages */
 static int maxqsiz = (DEFMAXQSIZ*1024*1024); /* kill if these bytes behind */
+#ifdef _WIN32
+static HANDLE job = NULL;
+#endif
 
 static void logStartup(int ac, char *av[]);
 static void usage (void);
+#ifndef _WIN32
 static void noZombies (void);
 static void noSIGPIPE (void);
+#endif//_WIN32
 static void indiFIFO(void);
 static void indiRun (void);
 static void indiListen (void);
 static void newFIFO(void);
 static void newClient (void);
-static int newClSocket (void);
+static SD newClSocket (void);
 static void shutdownClient (ClInfo *cp);
 static int readFromClient (ClInfo *cp);
 static void startDvr (DvrInfo *dp);
 static void startLocalDvr (DvrInfo *dp);
 static void startRemoteDvr (DvrInfo *dp);
-static int openINDIServer (char host[], int indi_port);
+static SD openINDIServer(char host[], int indi_port);
 static void shutdownDvr (DvrInfo *dp, int restart);
 static void q2RDrivers (const char *dev, Msg *mp, XMLEle *root);
 static void q2SDrivers (int isblob, const char *dev, const char *name, Msg *mp,
@@ -239,12 +286,42 @@ main (int ac, char *av[])
 	}
 
 	/* at this point there are ac args in av[] to name our drivers */
-        if (ac == 0 && !fifo.name)
-            usage();
-
+	if (ac == 0 && !fifo.name)
+		usage();
+	
+#ifndef _WIN32
 	/* take care of some unixisms */
-	noZombies();
+	// TODO: Look at what these do and if they are necessary on Windows
+	noZombies(); //Sets the parent process (this) to ignore the closing of the child processes, avoiding turning drivers into zombie processes?
 	noSIGPIPE();
+#else
+	// Make sure that child processes are killed with this one
+	job = CreateJobObject(NULL, NULL);
+	if (job == NULL)
+	{
+		fprintf(stderr, "CreateJobObject failed: %lu\n", GetLastError());
+		Bye();
+	}
+	JOBOBJECT_EXTENDED_LIMIT_INFORMATION jeli;
+	ZeroMemory(&jeli, sizeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION));
+	jeli.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+	if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation,
+	                             &jeli, sizeof(jeli)))
+	{
+		fprintf(stderr, "SetInformationJobObject failed: %lu\n",
+		        GetLastError());
+		Bye();
+	}
+	
+	// Init Winsock
+	WSADATA wsaData;
+	if (WSAStartup(0x202, &wsaData) != 0)
+	{
+		fprintf(stderr, "WSAStartup failed: %lu\n",
+		        GetLastError());
+		Bye();
+	}
+#endif
 
 	/* realloc seed for client pool */
 	clinfo = (ClInfo *) malloc (1);
@@ -307,6 +384,7 @@ usage(void)
 	exit (2);
 }
 
+#ifndef _WIN32
 /* arrange for no zombies if drivers die */
 static void
 noZombies()
@@ -331,6 +409,7 @@ noSIGPIPE()
 	sigemptyset(&sa.sa_mask);
 	(void)sigaction(SIGPIPE, &sa, NULL);
 }
+#endif
 
 static DvrInfo * allocDvr ()
 {
@@ -380,6 +459,8 @@ startLocalDvr (DvrInfo *dp)
 {
 	Msg *mp;
 	char buf[1024];
+
+#ifndef _WIN32
 	int rp[2], wp[2], ep[2];
 	int pid;
 
@@ -413,7 +494,7 @@ startLocalDvr (DvrInfo *dp)
 	    /* rig up pipes */
 	    dup2 (wp[0], 0);	/* driver stdin reads from wp[0] */
 	    dup2 (rp[1], 1);	/* driver stdout writes to rp[1] */
-	    dup2 (ep[1], 2);	/* driver stderr writes to e[]1] */
+	    dup2 (ep[1], 2);	/* driver stderr writes to ep[1] */
 	    for (fd = 3; fd < 100; fd++)
 		(void) close (fd);
 
@@ -429,17 +510,124 @@ startLocalDvr (DvrInfo *dp)
 	close (rp[1]);
 	close (ep[1]);
 
-	/* record pid, io channels, init lp and snoop list */
+	/* record pid and io channels */
 	dp->pid = pid;
 	dp->rfd = rp[0];
 	dp->wfd = wp[1];
 	dp->efd = ep[0];
+	
+#else // _WIN32:
+	
+	// Prepare pipes for the sub-process stdin, stdout and stderr
+	HANDLE wh[2]; // stdin
+	HANDLE rh[2]; // stdout
+	HANDLE eh[2]; // stderr
+	
+	SECURITY_ATTRIBUTES sattr;
+	sattr.nLength = sizeof(SECURITY_ATTRIBUTES);
+	sattr.bInheritHandle = TRUE;
+	sattr.lpSecurityDescriptor = NULL;
+	
+	if (!CreatePipe(&rh[0], &rh[1], &sattr, 0))
+	{
+		// TODO: Print the error message:
+		fprintf (stderr, "%s: read pipe: %lu\n",
+		         indi_tstamp(NULL), GetLastError());
+		Bye();
+	}
+	if (!SetHandleInformation(rh[0], HANDLE_FLAG_INHERIT, 0))
+	{
+		fprintf (stderr, "%s: read pipe: SetHandleInformation: %lu\n",
+		         indi_tstamp(NULL), GetLastError());
+		Bye();
+	}
+	if (!CreatePipe(&wh[0], &wh[1], &sattr, 0))
+	{
+		// TODO: Print the error message:
+		fprintf (stderr, "%s: write pipe: %lu\n",
+		         indi_tstamp(NULL), GetLastError());
+		Bye();
+	}
+	if (!SetHandleInformation(wh[1], HANDLE_FLAG_INHERIT, 0))
+	{
+		fprintf (stderr, "%s: write pipe: SetHandleInformation: %lu\n",
+		         indi_tstamp(NULL), GetLastError());
+		Bye();
+	}
+	if (!CreatePipe(&eh[0], &eh[1], &sattr, 0))
+	{
+		// TODO: Print the error message:
+		fprintf (stderr, "%s: stderr pipe: %lu\n",
+		         indi_tstamp(NULL), GetLastError());
+		Bye();
+	}
+	if (!SetHandleInformation(eh[0], HANDLE_FLAG_INHERIT, 0))
+	{
+		fprintf (stderr, "%s: stderr pipe: SetHandleInformation: %lu\n",
+		         indi_tstamp(NULL), GetLastError());
+		Bye();
+	}
+	
+	// Start driver process
+	STARTUPINFO startinfo;
+	PROCESS_INFORMATION procinfo;
+	ZeroMemory(&procinfo, sizeof(PROCESS_INFORMATION));
+	ZeroMemory(&startinfo, sizeof(STARTUPINFO));
+	startinfo.cb = sizeof(STARTUPINFO);
+	startinfo.hStdInput =  wh[0];
+	startinfo.hStdOutput = rh[1];
+	startinfo.hStdError =  eh[1];
+	startinfo.dwFlags |= STARTF_USESTDHANDLES;
+	
+	// There is an issue with access rights on assigning the process to a job
+	// on Windows 7/Vista, so use the CREATE_BREAKAWAY_FROM_JOB flag
+	// (see the MSDN notes for AssignProcessToJobObject()) --BM
+	if (!CreateProcess(NULL, 
+	                   dp->name, // Command line: searches for driver name
+	                   NULL,
+	                   NULL,
+	                   TRUE, // Inherit handles
+	                   CREATE_BREAKAWAY_FROM_JOB, // Workaround for bug
+	                   NULL,
+	                   NULL,
+	                   &startinfo,
+	                   &procinfo))
+	{
+		// TODO: Display error message string
+		// http://msdn.microsoft.com/en-us/library/windows/desktop/ms679360%28v=vs.85%29.aspx
+		// http://msdn.microsoft.com/en-us/library/windows/desktop/ms679351%28v=vs.85%29.aspx
+		// http://msdn.microsoft.com/en-us/library/windows/desktop/ms680582%28v=vs.85%29.aspx
+		fprintf (stderr, "%s: Driver %s: CreateProcess: %lu\n",
+		         indi_tstamp(NULL), dp->name, GetLastError());
+		return;
+	}
+	// Attach the new child process to a job, so it's killed with its parrent
+	if (job)
+	{
+		if (!AssignProcessToJobObject(job, procinfo.hProcess))
+		{
+			fprintf (stderr, "%s: Driver %s: AssignProcessToJobObject: %lu\n",
+			         indi_tstamp(NULL), dp->name, GetLastError());
+			// As the process was not attached to the job, it needs to die.
+			TerminateProcess(procinfo.hProcess, 0);
+			return;
+		}
+	}
+	
+	// Record process handle and i/o channels
+	dp->pid = procinfo.hProcess;
+	dp->rph = rh[0];
+	dp->wph = wh[1];
+	dp->eph = eh[0];
+#endif//_WIN32
+	
+	// init lp and snoop list 
 	dp->lp = newLilXML();
-        dp->msgq = newFQ(1);
-        dp->sprops = (Property*) malloc (1);	/* seed for realloc */
+	dp->msgq = newFQ(1);
+	dp->sprops = (Property*) malloc (1);	/* seed for realloc */
 	dp->nsprops = 0;
 	dp->nsent = 0;
-        dp->active = 1;
+	dp->active = 1;
 
 	/* first message primes driver to report its properties -- dev known
 	 * if restarting
@@ -447,16 +635,23 @@ startLocalDvr (DvrInfo *dp)
 	mp = newMsg();
 	pushFQ (dp->msgq, mp);
 	if (dp->dev[0])
-	    sprintf (buf, "<getProperties device='%s' version='%g'/>\n",
-							    dp->dev, INDIV);
+		sprintf (buf, "<getProperties device='%s' version='%g'/>\n",
+		         dp->dev, INDIV);
 	else
-	    sprintf (buf, "<getProperties version='%g'/>\n", INDIV);
+		sprintf (buf, "<getProperties version='%g'/>\n", INDIV);
 	setMsgStr (mp, buf);
 	mp->count++;
 
+#ifndef _WIN32
 	if (verbose > 0)
-	    fprintf (stderr, "%s: Driver %s: pid=%d rfd=%d wfd=%d efd=%d\n",
-		    indi_tstamp(NULL), dp->name, dp->pid, dp->rfd, dp->wfd, dp->efd);
+		fprintf (stderr, "%s: Driver %s: pid=%d rfd=%d wfd=%d efd=%d\n",
+		         indi_tstamp(NULL), dp->name, dp->pid, dp->rfd, dp->wfd, dp->efd); // BM: Pipes
+#else
+	if (verbose > 0)
+		fprintf (stderr, "%s: Driver %s: process id=%lu thread id=%lu\n",
+		         indi_tstamp(NULL), dp->name,
+		         procinfo.dwProcessId, procinfo.dwProcessId);
+#endif
 }
 
 /* start the given remote INDI driver connection.
@@ -516,12 +711,12 @@ startRemoteDvr (DvrInfo *dp)
 /* open a connection to the given host and port or die.
  * return socket fd.
  */
-static int
+static SD
 openINDIServer (char host[], int indi_port)
 {
 	struct sockaddr_in serv_addr;
 	struct hostent *hp;
-	int sockfd;
+	SD sockfd;
 
 	/* lookup host address */
 	hp = gethostbyname (host);
@@ -576,13 +771,29 @@ indiListen ()
 	serv_socket.sin_addr.s_addr = htonl (INADDR_ANY);
 	#endif
 	serv_socket.sin_port = htons ((unsigned short)port);
-	if (setsockopt(sfd,SOL_SOCKET,SO_REUSEADDR,&reuse,sizeof(reuse)) < 0){
-	    fprintf (stderr, "%s: setsockopt: %s\n", indi_tstamp(NULL),
-							    strerror(errno));
-	    Bye();
+	if (setsockopt(sfd,
+	               SOL_SOCKET,
+	               SO_REUSEADDR,
+	               &reuse, // TODO: May be a problem, generates warning. --BM
+	               sizeof(reuse)) < 0)
+	{
+#ifndef _WIN32
+		fprintf (stderr, "%s: setsockopt: %s\n", indi_tstamp(NULL),
+		         strerror(errno));
+#else
+		fprintf (stderr, "%s: setsockopt: %d\n", indi_tstamp(NULL),
+		         WSAGetLastError());
+#endif
+		Bye();
 	}
-	if (bind(sfd,(struct sockaddr*)&serv_socket,sizeof(serv_socket)) < 0){
+	if (bind(sfd,(struct sockaddr*)&serv_socket,sizeof(serv_socket)) < 0)
+	{
+#ifndef _WIN32
 	    fprintf (stderr, "%s: bind: %s\n", indi_tstamp(NULL), strerror(errno));
+#else
+		fprintf (stderr, "%s: bind: %d\n",
+		         indi_tstamp(NULL), WSAGetLastError());
+#endif
 	    Bye();
 	}
 
@@ -602,21 +813,27 @@ indiListen ()
 /* Attempt to open up FIFO */
 static void indiFIFO(void)
 {
-    close(fifo.fd);
-    fifo.fd=-1;
-
-    /* Open up FIFO, if available */
-    if (fifo.name)
-    {
-        fifo.fd = open(fifo.name, O_RDWR | O_NONBLOCK);
-
-       if (fifo.fd < 0)
-       {
-           fprintf(stderr, "%s: open(%s): %s.\n", indi_tstamp(NULL), fifo.name, strerror(errno));
-           Bye();
-       }
-    }
-
+#ifndef _WIN32
+	close(fifo.fd);
+	fifo.fd=-1;
+	
+	/* Open up FIFO, if available */
+	if (fifo.name)
+	{
+		fifo.fd = open(fifo.name, O_RDWR | O_NONBLOCK);
+		
+		if (fifo.fd < 0)
+		{
+			fprintf(stderr, "%s: open(%s): %s.\n", indi_tstamp(NULL), fifo.name, strerror(errno));
+			Bye();
+		}
+	}
+#else //_WIN32
+	// TODO: Open named pipe. --BM
+	// - Close previous pipe handle
+	// - Decide which will be named pipe client and which will be np server,
+	//    because on Windows you can't create it on the command line.
+#endif
 }
 
 /* service traffic from clients and drivers */
@@ -624,62 +841,81 @@ static void
 indiRun(void)
 {
 	fd_set rs, ws;
-        int maxfd=0;
+	int maxfd=0;
 	int i, s;
 
 	/* init with no writers or readers */
 	FD_ZERO(&ws);
 	FD_ZERO(&rs);
 
-        if (fifo.name && fifo.fd >=0)
-        {
-           FD_SET(fifo.fd, &rs);
-           maxfd = fifo.fd;
-        }
+	if (fifo.name && fifo.fd >=0)
+	{
+		FD_SET(fifo.fd, &rs);
+		maxfd = fifo.fd;
+	}
 
 	/* always listen for new clients */
 	FD_SET(lsocket, &rs);
-        if (lsocket > maxfd)
-                maxfd = lsocket;
+	if (lsocket > maxfd)
+		maxfd = lsocket;
 
 	/* add all client readers and client writers with work to send */
 	for (i = 0; i < nclinfo; i++) {
-	    ClInfo *cp = &clinfo[i];
-	    if (cp->active) {
-		FD_SET(cp->s, &rs);
-		if (nFQ(cp->msgq) > 0)
-		    FD_SET(cp->s, &ws);
-		if (cp->s > maxfd)
-		    maxfd = cp->s;
-	    }
+		ClInfo *cp = &clinfo[i];
+		if (cp->active) {
+			FD_SET(cp->s, &rs);
+			if (nFQ(cp->msgq) > 0)
+				FD_SET(cp->s, &ws);
+			if (cp->s > maxfd)
+				maxfd = cp->s;
+		}
 	}
 
 	/* add all driver readers and driver writers with work to send */
-        for (i = 0; i < ndvrinfo; i++)
-        {
-	    DvrInfo *dp = &dvrinfo[i];
-            if (dp->active)
-            {
-                FD_SET(dp->rfd, &rs);
-                if (dp->rfd > maxfd)
-                   maxfd = dp->rfd;
-                if (dp->pid != REMOTEDVR)
-                {
-                   FD_SET(dp->efd, &rs);
-                   if (dp->efd > maxfd)
-                      maxfd = dp->efd;
-                }
-                if (nFQ(dp->msgq) > 0)
-                {
-                   FD_SET(dp->wfd, &ws);
-                   if (dp->wfd > maxfd)
-                       maxfd = dp->wfd;
-                }
-            }
+	for (i = 0; i < ndvrinfo; i++)
+	{
+		DvrInfo *dp = &dvrinfo[i];
+		if (dp->active)
+		{
+#ifndef _WIN32
+			FD_SET(dp->rfd, &rs);
+			if (dp->rfd > maxfd)
+				maxfd = dp->rfd;
+			if (dp->pid != REMOTEDVR)
+			{
+				FD_SET(dp->efd, &rs);
+				if (dp->efd > maxfd)
+					maxfd = dp->efd;
+			}
+			if (nFQ(dp->msgq) > 0)
+			{
+				FD_SET(dp->wfd, &ws);
+				if (dp->wfd > maxfd)
+					maxfd = dp->wfd;
+			}
+#else //_WIN32:
+			// On Windows: only remote drivers use sockets, maxfd is ignored.
+			if (dp->pid != REMOTEDVR)
+				continue;
+			FD_SET(dp->rfd, &rs);
+			if (nFQ(dp->msgq) > 0)
+				FD_SET(dp->wfd, &ws);
+#endif
+		}
 	}
 
-	/* wait for action */
-	s = select (maxfd+1, &rs, &ws, NULL, NULL);
+    fflush(stdout);
+    fflush(stderr);
+    /* wait for action */
+#ifndef _WIN32
+    s = select (maxfd+1, &rs, &ws, NULL, NULL);
+#else
+    struct timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 100;
+    s = select (maxfd+1, &rs, &ws, NULL, &tv);
+#endif
+	
 	if (s < 0) {
 	    fprintf (stderr, "%s: select(%d): %s\n", indi_tstamp(NULL), maxfd+1,
 							    strerror(errno));
@@ -702,242 +938,295 @@ indiRun(void)
 
 	/* message to/from client? */
 	for (i = 0; s > 0 && i < nclinfo; i++) {
-	    ClInfo *cp = &clinfo[i];
-	    if (cp->active) {
-		if (FD_ISSET(cp->s, &rs)) {
-		    if (readFromClient(cp) < 0)
-			return;	/* fds effected */
-		    s--;
+		ClInfo *cp = &clinfo[i];
+		if (cp->active) {
+			if (FD_ISSET(cp->s, &rs)) {
+				if (readFromClient(cp) < 0)
+					return;	/* fds effected */
+				s--;
+			}
+			if (s > 0 && FD_ISSET(cp->s, &ws)) {
+				if (sendClientMsg(cp) < 0)
+					return;	/* fds effected */
+				s--;
+			}
 		}
-		if (s > 0 && FD_ISSET(cp->s, &ws)) {
-		    if (sendClientMsg(cp) < 0)
-			return;	/* fds effected */
-		    s--;
-		}
-	    }
 	}
 
 	/* message to/from driver? */
 	for (i = 0; s > 0 && i < ndvrinfo; i++) {
-	    DvrInfo *dp = &dvrinfo[i];
-	    if (dp->pid != REMOTEDVR && FD_ISSET(dp->efd, &rs)) {
-		if (stderrFromDriver(dp) < 0)
-		    return;	/* fds effected */
-		s--;
-	    }
-	    if (s > 0 && FD_ISSET(dp->rfd, &rs)) {
-		if (readFromDriver(dp) < 0)
-		    return;	/* fds effected */
-		s--;
-	    }
-	    if (s > 0 && FD_ISSET(dp->wfd, &ws) && nFQ(dp->msgq) > 0) {
-		if (sendDriverMsg(dp) < 0)
-		    return;	/* fds effected */
-		s--;
-	    }
+		DvrInfo *dp = &dvrinfo[i];
+#ifndef _WIN32
+		if (dp->pid != REMOTEDVR && FD_ISSET(dp->efd, &rs)) {
+			if (stderrFromDriver(dp) < 0)
+				return;	/* fds effected */
+			s--;
+		}
+#endif
+		if (s > 0 && FD_ISSET(dp->rfd, &rs)) {
+			if (readFromDriver(dp) < 0)
+				return;	/* fds effected */
+			s--;
+		}
+		if (s > 0 && FD_ISSET(dp->wfd, &ws) && nFQ(dp->msgq) > 0) {
+			if (sendDriverMsg(dp) < 0)
+				return;	/* fds effected */
+			s--;
+		}
 	}
+#ifdef _WIN32
+	// Deal with anonymous pipes
+	
+	for (i = 0; i < ndvrinfo; i++)
+	{
+		DvrInfo *dp = &dvrinfo[i];
+		if (dp->pid == REMOTEDVR)
+			continue;
+		
+		DWORD bavail = 0; // Bytes available to read
+		if (PeekNamedPipe(dp->rph, NULL, 0, NULL, &bavail, NULL))
+		{
+			if (bavail > 0)
+			{
+				fprintf (stderr, "%s: Peek read: %lu \n",
+				         indi_tstamp(NULL), bavail);
+				if (readFromDriver(dp) < 0)
+					return; // Why return? --BM
+			}
+		}
+		else
+		{
+			fprintf (stderr, "%s: Driver %s: PeekNamedPipe(stdout): %lu\n",
+			         indi_tstamp(NULL), dp->name, GetLastError());
+		}
+		bavail = 0;
+		if (PeekNamedPipe(dp->eph, NULL, 0, NULL, &bavail, NULL))
+		{
+			if (bavail > 0)
+			{
+				fprintf (stderr, "%s: Peek stderr: %lu \n",
+				         indi_tstamp(NULL), bavail);
+				if (stderrFromDriver(dp) < 0)
+					return;
+			}
+		}
+		else
+		{
+			fprintf (stderr, "%s: Driver %s: PeekNamedPipe(stderr): %lu\n",
+			         indi_tstamp(NULL), dp->name, GetLastError());
+		}
+		// Write to stdin
+		// One can always write to a pipe?
+		if (nFQ(dp->msgq) > 0)
+		{
+			if (sendDriverMsg(dp) < 0)
+				return;
+		}
+	}
+	
+	// Emulating select() - yield for a while
+	Sleep(0);
+#endif
 }
 
 /* Read commands from FIFO and process them. Start/stop drivers accordingly */
 static void newFIFO(void)
 {
-    char line[MAXRBUF], tDriver[MAXRBUF], tConfig[MAXRBUF], tDev[MAXRBUF], envDev[MAXRBUF], envConfig[MAXRBUF];
-    const char *delm = " ";
-    char *token, *cp, *tp;
-    DvrInfo *dp = NULL;
-    int startCmd=0, i=0;
-
-    while (i < MAXRBUF)
-    {
-        if (read(fifo.fd, line+i, 1) <= 0)
-        {
-            // Reset FIFO now, otherwise select will always return with no data from FIFO.
-            indiFIFO();
-            return;
-        }
-
-        if (line[i] == '\n')
-        {
-            line[i] = '\0';
-            i=0;
-        }
-        else
-        {
-          i++;
-          continue;
-        }
-
-
-     if (verbose)
-            fprintf(stderr, "FIFO: %s\n", line);
-
-
-     memset(&tDriver[0], 0, sizeof(MAXRBUF));
-     memset(&tConfig[0], 0, sizeof(MAXRBUF));
-     memset(&tDev[0], 0, sizeof(MAXRBUF));
-     memset(&envDev[0], 0, sizeof(MAXRBUF));
-     memset(&envConfig[0], 0, sizeof(MAXRBUF));
-
-     cp = strdup(line);
-
-     token = strsep(&cp, delm);
-
-        if (!strcmp(token, "start") || !strcmp(token, "stop"))
-        {
-                if (!strcmp(token, "start"))
-                    startCmd = 1;
-
-                token = strsep(&cp, delm);
-
-                if (!token)
-                    return;
-
-               strncpy(tDriver, token, MAXRBUF);
-               if (tp = strchr(tDriver, '\n'))
-                   *tp = '\0';
-
-               if (verbose)
-                fprintf(stderr, "FIFO: Request for %s driver: %s\n", (startCmd == 1) ? "starting" : "stopping", tDriver);
-
-               /* Find more name + config */
-               token = strsep(&cp, delm);
-
-               if (token)
-               {
-                 /* If config file detected, copy it */
-                if (strstr(token, ".xml"))                 
-                    strncpy(tConfig, token, MAXRBUF);
-                /* Get rid of quotes */
-                else if (strstr(token, "\"") || strstr(token, "'"))
-                {
-                    strncat(tDev, ++token, sizeof(tDev)-strlen(tDev)-1);
-
-                    if ( tDev[strlen(tDev)-1] == '\"' || tDev[strlen(tDev)-1] == '\'')
-                        tDev[strlen(tDev)-1] = '\0';
-
-                   else while (token = strsep(&cp, delm) )
-                   {
-                     strcat(tDev, " ");
-                     strncat(tDev, token, sizeof(tDev)-strlen(tDev)-1);
-                     if ( (tp=strchr(tDev, '\"')) || (tp=strchr(tDev, '\'')))
-                     {
-                         tDev[strlen(tDev)-1] = '\0';
-                         *tp='\0';
-                         break;
-                     }
-                    }
-                 }
-                 else
-                {
-                     strncpy(tDev, token, MAXRBUF);
-                     if (tp = strchr(tDev, '\n'))
-                         *tp = '\0';
-                 }
-
-                  /* Find config, if there is any */
-                  token = strsep(&cp, delm);
-                  if (token)
-                  {
-                      /* Get rid of quotes */
-                      if (strstr(token, "\"") || strstr(token, "'"))
-                      {
-                       strncat(tConfig, ++token, sizeof(tConfig)-strlen(tDev)-1);
-
-                       if ( tConfig[strlen(tConfig)-1] == '\"' || tConfig[strlen(tConfig)-1] == '\'')
-                           tConfig[strlen(tConfig)-1] = '\0';
-
-                       while (token = strsep(&cp, delm) )
-                       {
-                          strcat(tConfig, " ");
-                          strncat(tConfig, token, sizeof(tConfig)-strlen(tDev)-1);
-
-                          if ( (tp=strchr(tConfig, '\"')) || (tp=strchr(tConfig, '\'')))
-                          {
-                               tConfig[strlen(tConfig)-1] = '\0';
-                              *tp = '\0';
-                              break;
-                          }
-                       }
-                      }
-                       else
-                      {
-                           strncpy(tConfig, token, MAXRBUF);
-                           if (tp = strchr(tConfig, '\n'))
-                               *tp = '\0';
-                       }
-                  }
-              }
-
-               /* Did we find device name? */
-               if (tDev[0])
-               {
-                 snprintf(envDev, MAXRBUF, "INDIDEV=%s", tDev);
-
-                 if (verbose)
-                    fprintf(stderr, "With name: %s\n", envDev);
-
-                 putenv(envDev);
-
-                 //fprintf(stderr, "envionment check INDIDEV: %s\n", getenv("INDIDEV"));
-               }
-
-               /* Did we find config file */
-               if (tConfig[0])
-               {
-                   snprintf(envConfig, MAXRBUF, "INDICONFIG=%s", tConfig);
-
-                   if (verbose)
-                    fprintf(stderr, "With config: %s\n", envConfig);
-
-                   putenv(envConfig);
-               }
-
-               if (startCmd)
-               {
-                   if (verbose)
-                        fprintf(stderr, "FIFO: Starting driver %s\n", tDriver);
-                    dp = allocDvr();
-                    strncpy(dp->name, tDriver, MAXINDIDEVICE);
-                    strncpy(dp->dev, tDev, MAXINDIDEVICE);
-                    startDvr (dp);
-              }
-               else
-               {
-                  for (dp = dvrinfo; dp < &dvrinfo[ndvrinfo]; dp++)
-                   {
-                       if (!strcmp(dp->name, tDriver) && dp->active==1)
-                       {
-                           /* If device name is given, check against it before shutting down */
-                           if (tDev[0] && strcmp(dp->dev, tDev))
-                               continue;
-
-                           if (verbose)
-                               fprintf(stderr, "FIFO: Shutting down driver: %s\n", tDriver);
-
-                           shutdownDvr(dp, 0);
-
-                               /* Inform clients that this driver is dead */
-                               XMLEle *root = addXMLEle (NULL, "delProperty");
-                               addXMLAtt(root, "device", dp->dev);
-                               Msg * mp = newMsg();
-
-                               q2Clients(NULL, 0, dp->dev, NULL, mp, root);
-                               if (mp->count > 0)
-                                   setMsgXMLEle (mp, root);
-                               else
-                                   freeMsg (mp);
-                               delXMLEle (root);
-
-                           break;
-
-                       }
-                   }
-               }
-         }
-
-    }
-
-
+	char line[MAXRBUF], tDriver[MAXRBUF], tConfig[MAXRBUF], tDev[MAXRBUF], envDev[MAXRBUF], envConfig[MAXRBUF];
+	const char *delm = " ";
+	char *token, *cp, *tp;
+	DvrInfo *dp = NULL;
+	int startCmd=0, i=0;
+	
+	while (i < MAXRBUF)
+	{
+		if (read(fifo.fd, line+i, 1) <= 0)
+		{
+			// Reset FIFO now, otherwise select will always return with no data from FIFO.
+			indiFIFO();
+			return;
+		}
+		
+		if (line[i] == '\n')
+		{
+			line[i] = '\0';
+			i=0;
+		}
+		else
+		{
+			i++;
+			continue;
+		}
+		
+		
+		if (verbose)
+			fprintf(stderr, "FIFO: %s\n", line);
+		
+		
+		memset(&tDriver[0], 0, sizeof(MAXRBUF));
+		memset(&tConfig[0], 0, sizeof(MAXRBUF));
+		memset(&tDev[0], 0, sizeof(MAXRBUF));
+		memset(&envDev[0], 0, sizeof(MAXRBUF));
+		memset(&envConfig[0], 0, sizeof(MAXRBUF));
+		
+		cp = strdup(line);
+		
+		token = strsep(&cp, delm);
+		
+		if (!strcmp(token, "start") || !strcmp(token, "stop"))
+		{
+			if (!strcmp(token, "start"))
+				startCmd = 1;
+			
+			token = strsep(&cp, delm);
+			
+			if (!token)
+				return;
+			
+			strncpy(tDriver, token, MAXRBUF);
+			if (tp = strchr(tDriver, '\n'))
+				*tp = '\0';
+			
+			if (verbose)
+				fprintf(stderr, "FIFO: Request for %s driver: %s\n", (startCmd == 1) ? "starting" : "stopping", tDriver);
+			
+			/* Find more name + config */
+			token = strsep(&cp, delm);
+			
+			if (token)
+			{
+				/* If config file detected, copy it */
+				if (strstr(token, ".xml"))                 
+					strncpy(tConfig, token, MAXRBUF);
+				/* Get rid of quotes */
+				else if (strstr(token, "\"") || strstr(token, "'"))
+				{
+					strncat(tDev, ++token, sizeof(tDev)-strlen(tDev)-1);
+					
+					if ( tDev[strlen(tDev)-1] == '\"' || tDev[strlen(tDev)-1] == '\'')
+						tDev[strlen(tDev)-1] = '\0';
+					
+					else while (token = strsep(&cp, delm) )
+					{
+						strcat(tDev, " ");
+						strncat(tDev, token, sizeof(tDev)-strlen(tDev)-1);
+						if ( (tp=strchr(tDev, '\"')) || (tp=strchr(tDev, '\'')))
+						{
+							tDev[strlen(tDev)-1] = '\0';
+							*tp='\0';
+							break;
+						}
+					}
+				}
+				else
+				{
+					strncpy(tDev, token, MAXRBUF);
+					if (tp = strchr(tDev, '\n'))
+						*tp = '\0';
+				}
+				
+				/* Find config, if there is any */
+				token = strsep(&cp, delm);
+				if (token)
+				{
+					/* Get rid of quotes */
+					if (strstr(token, "\"") || strstr(token, "'"))
+					{
+						strncat(tConfig, ++token, sizeof(tConfig)-strlen(tDev)-1);
+						
+						if ( tConfig[strlen(tConfig)-1] == '\"' || tConfig[strlen(tConfig)-1] == '\'')
+							tConfig[strlen(tConfig)-1] = '\0';
+						
+						while (token = strsep(&cp, delm) )
+						{
+							strcat(tConfig, " ");
+							strncat(tConfig, token, sizeof(tConfig)-strlen(tDev)-1);
+							
+							if ( (tp=strchr(tConfig, '\"')) || (tp=strchr(tConfig, '\'')))
+							{
+								tConfig[strlen(tConfig)-1] = '\0';
+								*tp = '\0';
+								break;
+							}
+						}
+					}
+					else
+					{
+						strncpy(tConfig, token, MAXRBUF);
+						if (tp = strchr(tConfig, '\n'))
+							*tp = '\0';
+					}
+				}
+			}
+			
+			/* Did we find device name? */
+			if (tDev[0])
+			{
+				snprintf(envDev, MAXRBUF, "INDIDEV=%s", tDev);
+				
+				if (verbose)
+					fprintf(stderr, "With name: %s\n", envDev);
+				
+				putenv(envDev);
+				
+				//fprintf(stderr, "envionment check INDIDEV: %s\n", getenv("INDIDEV"));
+			}
+			
+			/* Did we find config file */
+			if (tConfig[0])
+			{
+				snprintf(envConfig, MAXRBUF, "INDICONFIG=%s", tConfig);
+				
+				if (verbose)
+					fprintf(stderr, "With config: %s\n", envConfig);
+				
+				putenv(envConfig);
+			}
+			
+			if (startCmd)
+			{
+				if (verbose)
+					fprintf(stderr, "FIFO: Starting driver %s\n", tDriver);
+				dp = allocDvr();
+				strncpy(dp->name, tDriver, MAXINDIDEVICE);
+				strncpy(dp->dev, tDev, MAXINDIDEVICE);
+				startDvr (dp);
+			}
+			else
+			{
+				for (dp = dvrinfo; dp < &dvrinfo[ndvrinfo]; dp++)
+				{
+					if (!strcmp(dp->name, tDriver) && dp->active==1)
+					{
+						/* If device name is given, check against it before shutting down */
+						if (tDev[0] && strcmp(dp->dev, tDev))
+							continue;
+						
+						if (verbose)
+							fprintf(stderr, "FIFO: Shutting down driver: %s\n", tDriver);
+						
+						shutdownDvr(dp, 0);
+						
+						/* Inform clients that this driver is dead */
+						XMLEle *root = addXMLEle (NULL, "delProperty");
+						addXMLAtt(root, "device", dp->dev);
+						Msg * mp = newMsg();
+						
+						q2Clients(NULL, 0, dp->dev, NULL, mp, root);
+						if (mp->count > 0)
+							setMsgXMLEle (mp, root);
+						else
+							freeMsg (mp);
+						delXMLEle (root);
+						
+						break;
+						
+					}
+				}
+			}
+		}
+		
+	} // while
 }
 
 /* prepare for new client arriving on lsocket.
@@ -947,23 +1236,24 @@ static void
 newClient()
 {
 	ClInfo *cp = NULL;
-	int s, cli;
-
+	SD s;
+	int cli;
+	
 	/* assign new socket */
 	s = newClSocket ();
 
 	/* try to reuse a clinfo slot, else add one */
 	for (cli = 0; cli < nclinfo; cli++)
-	    if (!(cp = &clinfo[cli])->active)
-		break;
+		if (!(cp = &clinfo[cli])->active)
+			break;
 	if (cli == nclinfo) {
-	    /* grow clinfo */
-	    clinfo = (ClInfo *) realloc (clinfo, (nclinfo+1)*sizeof(ClInfo));
-	    if (!clinfo) {
-		fprintf (stderr, "no memory for new client\n");
-		Bye();
-	    }
-	    cp = &clinfo[nclinfo++];
+		/* grow clinfo */
+		clinfo = (ClInfo *) realloc (clinfo, (nclinfo+1)*sizeof(ClInfo));
+		if (!clinfo) {
+			fprintf (stderr, "no memory for new client\n");
+			Bye();
+		}
+		cp = &clinfo[nclinfo++];
 	}
 
 	/* rig up new clinfo entry */
@@ -977,7 +1267,7 @@ newClient()
 
 	if (verbose > 0) {
 	    struct sockaddr_in addr;
-	    socklen_t len = sizeof(addr);
+	    SOCKLEN_T len = sizeof(addr);
 	    getpeername(s, (struct sockaddr*)&addr, &len);
 	    fprintf(stderr,"%s: Client %d: new arrival from %s:%d - welcome!\n",
 			    indi_tstamp(NULL), cp->s, inet_ntoa(addr.sin_addr),
@@ -997,7 +1287,8 @@ readFromClient (ClInfo *cp)
 	int i, nr;
 
 	/* read client */
-	nr = read (cp->s, buf, sizeof(buf));
+	// Using recv() instead of read() to avoid another _WIN32 macro. --BM
+	nr = recv (cp->s, buf, sizeof(buf), 0);
 	if (nr <= 0) {
 	    if (nr < 0)
 		fprintf (stderr, "%s: Client %d: read: %s\n", indi_tstamp(NULL),
@@ -1089,7 +1380,26 @@ readFromDriver (DvrInfo *dp)
 	int i, nr;
 
 	/* read driver */
-	nr = read (dp->rfd, buf, sizeof(buf));
+#ifndef _WIN32
+	nr = read (dp->rfd, buf, sizeof(buf)); //BM: Both socket and pipe
+#else //_WIN32:
+	if (dp->pid == REMOTEDVR)
+	{
+		nr = read (dp->rfd, buf, sizeof(buf));
+	}
+	else
+	{
+		DWORD brecv = 0; // Bytes received
+		if (!ReadFile(dp->rph, buf, sizeof(buf), &brecv, NULL))
+		{
+			fprintf (stderr, "%s: Driver %s: stdin %lu\n",
+			          indi_tstamp(NULL), dp->name, GetLastError());
+			shutdownDvr (dp, 1);
+			return (-1);
+		}
+		nr = (int) brecv;
+	}
+#endif
 	if (nr <= 0) {
 	    if (nr < 0)
 		fprintf (stderr, "%s: Driver %s: stdin %s\n", indi_tstamp(NULL),
@@ -1190,7 +1500,26 @@ stderrFromDriver (DvrInfo *dp)
 	int i, nr;
 
 	/* read more */
+#ifndef _WIN32
 	nr = read (dp->efd, exbuf+nexbuf, sizeof(exbuf)-nexbuf);
+#else //_WIN32:
+	if (dp->pid == REMOTEDVR)
+	{
+		nr = read (dp->efd, exbuf+nexbuf, sizeof(exbuf)-nexbuf);
+	}
+	else
+	{
+		DWORD brecv = 0; // Bytes received
+		if (!ReadFile(dp->eph, exbuf+nexbuf, sizeof(exbuf)-nexbuf, &brecv, NULL))
+		{
+			fprintf (stderr, "%s: Driver %s: stderr %lu\n",
+			          indi_tstamp(NULL), dp->name, GetLastError());
+			shutdownDvr (dp, 1);
+			return (-1);
+		}
+		nr = (int) brecv;
+	}
+#endif
 	if (nr <= 0) {
 	    if (nr < 0)
 		fprintf (stderr, "%s: Driver %s: stderr %s\n", indi_tstamp(NULL),
@@ -1225,8 +1554,13 @@ shutdownClient (ClInfo *cp)
 	Msg *mp;
 
 	/* close connection */
+#ifndef _WIN32
 	shutdown (cp->s, SHUT_RDWR);
 	close (cp->s);
+#else
+	shutdown (cp->s, SD_BOTH);
+	closesocket(cp->s);
+#endif
 
 	/* free memory */
 	delLilXML (cp->lp);
@@ -1255,14 +1589,32 @@ shutdownDvr (DvrInfo *dp, int restart)
 	/* make sure it's dead, reclaim resources */
 	if (dp->pid == REMOTEDVR) {
 	    /* socket connection */
-	    shutdown (dp->wfd, SHUT_RDWR);
-	    close (dp->wfd);	/* same as rfd */
+#ifndef _WIN32
+		shutdown (dp->wfd, SHUT_RDWR);
+		close (dp->wfd);	/* same as rfd */
+#else
+		shutdown (dp->wfd, SD_BOTH);
+		closesocket(dp->wfd);
+#endif
 	} else {
-	    /* local pipe connection */
-            kill (dp->pid, SIGKILL);	/* we've insured there are no zombies */
-	    close (dp->wfd);
-	    close (dp->rfd);
-	    close (dp->efd);
+		/* local pipe connection */
+#ifndef _WIN32
+		kill (dp->pid, SIGKILL);	/* we've ensured there are no zombies */
+		close (dp->wfd);
+		close (dp->rfd);
+		close (dp->efd);
+#else
+		// Prevents process from cleaning up: Same as sending a SIGKILL?
+		// http://msdn.microsoft.com/en-us/library/windows/desktop/ms686722%28v=vs.85%29.aspx
+		if (!TerminateProcess(dp->pid, 0))
+		{
+			fprintf(stderr, "%s: Driver %s: TerminateProcess failed: %lu",
+			        indi_tstamp(NULL), dp->name, GetLastError());
+		}
+		CloseHandle (dp->wph);
+		CloseHandle (dp->rph);
+		CloseHandle (dp->eph);
+#endif
 	}
 
 	/* free memory */
@@ -1551,7 +1903,8 @@ sendClientMsg (ClInfo *cp)
 	nsend = mp->cl - cp->nsent;
 	if (nsend > MAXWSIZ)
 	    nsend = MAXWSIZ;
-	nw = write (cp->s, &mp->cp[cp->nsent], nsend);
+	// Usign send() instead of write() to avoid another _WIN32 macro. --BM 
+	nw = send (cp->s, &mp->cp[cp->nsent], nsend, 0);
 
 	/* shut down if trouble */
 	if (nw <= 0) {
@@ -1608,19 +1961,27 @@ sendDriverMsg (DvrInfo *dp)
 	nsend = mp->cl - dp->nsent;
 	if (nsend > MAXWSIZ)
 	    nsend = MAXWSIZ;
+#ifndef _WIN32
 	nw = write (dp->wfd, &mp->cp[dp->nsent], nsend);
-
-	/* restart if trouble */
-	if (nw <= 0) {
-	    if (nw == 0)
-		fprintf (stderr, "%s: Driver %s: write returned 0\n",
-						    indi_tstamp(NULL), dp->name);
-	    else
-		fprintf (stderr, "%s: Driver %s: write: %s\n", indi_tstamp(NULL),
-						    dp->name, strerror(errno));
-            shutdownDvr (dp, 1);
-	    return (-1);
+#else //_WIN32:
+	if (dp->pid == REMOTEDVR)
+	{
+		// TODO: Use send()?
+		nw = write (dp->wfd, &mp->cp[dp->nsent], nsend);
 	}
+	else
+	{
+		DWORD bsent = 0;
+		if (!WriteFile(dp->wph, &mp->cp[dp->nsent], nsend, &bsent, NULL))
+		{
+			fprintf (stderr, "%s: Driver %s: write: %lu\n",
+			         indi_tstamp(NULL), dp->name, GetLastError());
+			shutdownDvr (dp, 1);
+			return (-1);
+		}
+		nw = (int) bsent;
+	}
+#endif
 
 	/* trace */
 	if (verbose > 2) {
@@ -1708,12 +2069,12 @@ addClDevice (ClInfo *cp, const char *dev, const char *name, int isblob)
 /* block to accept a new client arriving on lsocket.
  * return private nonblocking socket or exit.
  */
-static int
+static SD
 newClSocket ()
 {
 	struct sockaddr_in cli_socket;
-	socklen_t cli_len;
-	int cli_fd;
+	SOCKLEN_T cli_len;
+	SD cli_fd;
 
 	/* get a private connection to new client */
 	cli_len = sizeof(cli_socket);
@@ -1864,6 +2225,9 @@ logDMsg (XMLEle *root, const char *dev)
 static void
 Bye()
 {
+#ifdef _WIN32
+	WSACleanup();
+#endif
 	fprintf (stderr, "%s: good bye\n", indi_tstamp(NULL));
 	exit(1);
 }

@@ -26,6 +26,9 @@
 #include "indiapi.h"
 #include "indidevapi.h"
 #include "indibase.h"
+#ifdef _WIN32
+#include <windows.h> // for threads
+#endif
 
 #define MAXRBUF 2048
 
@@ -187,7 +190,11 @@ private:
     void listenINDI();
 
     // Thread for listenINDI()
+#ifndef _WIN32
     pthread_t listen_thread;
+#else
+	HANDLE listen_thread;
+#endif
 
     vector<INDI::BaseDevice *> cDevices;
     vector<string> cDeviceNames;

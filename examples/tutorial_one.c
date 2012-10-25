@@ -25,7 +25,7 @@
 
 /* INDI Core headers */
 
-/* indidevapi.h contains API declerations */
+/* indidevapi.h contains API declarations */
 #include "indidevapi.h"
 
 /* INDI Eventloop mechanism */

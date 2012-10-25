@@ -10,9 +10,13 @@
 #include <time.h>
 #include <unistd.h>
 #include <sys/types.h>
+#ifndef _WIN32
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#else //_WIN32:
+#include <winsock2.h>
+#endif
 
 #include "indiapi.h"
 #include "lilxml.h"
@@ -340,7 +344,11 @@ listenINDI (FILE *rfp, FILE *wfp)
 		    prXMLEle (stderr, root, 0);
 		findSet (root, wfp);
 		if (finished() == 0) {
+#ifndef _WIN32
 		    shutdown (fileno(wfp), SHUT_WR);	/* insure flush */
+#else
+			shutdown (fileno(wfp), SD_SEND);
+#endif
 		    exit (0);		/* found all we want */
 		}
 		delXMLEle (root);	/* not yet, delete and continue */

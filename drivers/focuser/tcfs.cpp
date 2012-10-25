@@ -29,7 +29,9 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#ifndef _WIN32
 #include <termios.h>
+#endif
 #include <memory>
 #include <indicom.h>
 

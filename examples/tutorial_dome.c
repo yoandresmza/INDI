@@ -30,9 +30,13 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#ifndef _WIN32
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#else //_WIN32:
+#include <windows.h>
+#endif
 #include <zlib.h>
 
 #include "indidevapi.h"
@@ -157,7 +161,11 @@ void ISNewSwitch (const char *dev, const char *name, ISState *states, char *name
 	else
 		IDSetSwitch(&DomeSP, "Dome is closing.");
 
+#ifndef _WIN32
 	sleep(5);
+#else
+	Sleep(5000);
+#endif
 
 	 DomeSP.s = IPS_OK;
 
@@ -190,7 +198,11 @@ void closeDome()
 
 	IDSetSwitch(&DomeSP, "Rain Alert! Dome is closing...");
 
+#ifndef _WIN32
 	sleep(5);
+#else
+	Sleep(5000);
+#endif
 
 	DomeS[0].s = ISS_OFF;
 	DomeS[1].s = ISS_ON;
