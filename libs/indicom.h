@@ -48,6 +48,26 @@
 #define ERRMSG_SIZE 1024
 #define INDI_DEBUG
 
+#ifndef _WIN32
+#ifndef FD
+#define FD int
+#define INVALID_FD -1
+#define IS_VALID_FD(x) (x >= 0) //TODO: Correct?
+#endif
+#else //_WIN32:
+#include <windows.h>
+#ifndef FD
+#define FD HANDLE
+#define INVALID_FD INVALID_HANDLE_VALUE
+#define IS_VALID_FD(x) (x && x != INVALID_HANDLE_VALUE)
+#endif
+
+// TODO: Find out if just *ABORT or *CLEAR is enough. --BM 
+#define tcflush(x,y) PurgeComm(x,y)
+#define TCIFLUSH (PURGE_RXABORT | PURGE_RXCLEAR)
+#define TCIOFLUSH (PURGE_RXABORT|PURGE_RXCLEAR | PURGE_TXABORT|PURGE_TXCLEAR)
+#endif
+
 extern const char * Direction[];
 extern const char * SolarSystem[];
 
@@ -68,42 +88,42 @@ extern "C" {
 
 /** \brief read buffer from terminal
     \param fd file descriptor
-    \param buf pointer to store data. Must be initilized and big enough to hold data.
+    \param[out] buf pointer to store data. Must be initilized and big enough to hold data.
     \param nbytes number of bytes to read.
     \param timeout number of seconds to wait for terminal before a timeout error is issued.
-    \param nbytes_read the number of bytes read.
+    \param[out] nbytes_read the number of bytes read.
     \return On success, it returns TTY_OK, otherwise, a TTY_ERROR code.
 */
-int tty_read(int fd, char *buf, int nbytes, int timeout, int *nbytes_read);
+int tty_read(FD fd, char *buf, int nbytes, int timeout, int *nbytes_read);
 
 /** \brief read buffer from terminal with a delimiter
     \param fd file descriptor
-    \param buf pointer to store data. Must be initilized and big enough to hold data.
+    \param[out] buf pointer to store data. Must be initilized and big enough to hold data.
     \param stop_char if the function encounters \e stop_char then it stops reading and returns the buffer.
     \param timeout number of seconds to wait for terminal before a timeout error is issued.
-    \param nbytes_read the number of bytes read.
+    \param[out] nbytes_read the number of bytes read.
     \return On success, it returns TTY_OK, otherwise, a TTY_ERROR code.
 */
 
-int tty_read_section(int fd, char *buf, char stop_char, int timeout, int *nbytes_read);
+int tty_read_section(FD fd, char *buf, char stop_char, int timeout, int *nbytes_read);
 
 
 /** \brief Writes a buffer to fd.
     \param fd file descriptor
     \param buffer a null-terminated buffer to write to fd.
     \param nbytes number of bytes to write from \e buffer
-    \param nbytes_written the number of bytes written
+    \param[out] nbytes_written the number of bytes written
     \return On success, it returns TTY_OK, otherwise, a TTY_ERROR code.
 */
-int tty_write(int fd, const char * buffer, int nbytes, int *nbytes_written);
+int tty_write(FD fd, const char * buffer, int nbytes, int *nbytes_written);
 
 /** \brief Writes a null terminated string to fd.
     \param fd file descriptor
     \param buffer the buffer to write to fd.
-    \param nbytes_written the number of bytes written
+    \param[out] nbytes_written the number of bytes written
     \return On success, it returns TTY_OK, otherwise, a TTY_ERROR code.
 */
-int tty_write_string(int fd, const char * buffer, int *nbytes_written);
+int tty_write_string(FD fd, const char * buffer, int *nbytes_written);
 
 
 /** \brief Establishes a tty connection to a terminal device.
@@ -112,18 +132,18 @@ int tty_write_string(int fd, const char * buffer, int *nbytes_written);
     \param word_size number of data bits, 7 or 8, USE 8 DATA BITS with modbus
     \param parity 0=no parity, 1=parity EVEN, 2=parity ODD
     \param stop_bits number of stop bits : 1 or 2
-    \param fd \e fd is set to the file descriptor value on success.
+    \param[out] fd \e fd is set to the file descriptor value on success.
     \return On success, it returns TTY_OK, otherwise, a TTY_ERROR code.
     \author Wildi Markus
 */
 
-int tty_connect(const char *device, int bit_rate, int word_size, int parity, int stop_bits, int *fd);
+int tty_connect(const char *device, int bit_rate, int word_size, int parity, int stop_bits, FD *fd);
 
 /** \brief Closes a tty connection and flushes the bus.
     \param fd the file descriptor to close.
     \return On success, it returns TTY_OK, otherwise, a TTY_ERROR code.
 */
-int tty_disconnect(int fd);
+int tty_disconnect(FD fd);
 
 /** \brief Retrieve the tty error message
     \param err_code the error code return by any TTY function.
@@ -132,7 +152,17 @@ int tty_disconnect(int fd);
 */
 void tty_error_msg(int err_code, char *err_msg, int err_msg_len);
 
-int tty_timeout(int fd, int timeout);
+/** \brief Block until fd is ready to be read or the operation times out.
+ *  \param fd file descriptor
+ *  \param timeout time to wait in seconds
+ *  \returns Depending on the result:
+ *   - TTY_OK on success;
+ *   - TTY_TIME_OUT if the time runs out;
+ *   - TTY_SELECT_ERROR if select() returns an error;
+ *   - TTY_ERRNO on generic error or when used on Windows.
+ *  \warning Do not use on Windows, as another time-out mechanism is used.
+ */
+int tty_timeout(FD fd, int timeout);
 /*@}*/
 
 /**

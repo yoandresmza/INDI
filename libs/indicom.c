@@ -50,6 +50,8 @@
 #define PARITY_NONE    0
 #define PARITY_EVEN    1
 #define PARITY_ODD     2
+#else
+#include <windows.h>
 #endif
 
 #define MAXRBUF         2048
@@ -245,7 +247,7 @@ timestamp()
 	return (ts);
 }
 
-int tty_timeout(int fd, int timeout)
+int tty_timeout(FD fd, int timeout)
 {
 #ifndef _WIN32
  if (fd == -1)
@@ -279,11 +281,12 @@ int tty_timeout(int fd, int timeout)
 #endif
 }
 
-int tty_write(int fd, const char * buf, int nbytes, int *nbytes_written)
+int tty_write(FD fd, const char * buf, int nbytes, int *nbytes_written)
 {
-    if (fd == -1)
-           return TTY_ERRNO;
+	if (!IS_VALID_FD(fd))
+		return TTY_ERRNO;
 
+#ifndef _WIN32
   int bytes_w = 0;   
   *nbytes_written = 0;
    
@@ -299,15 +302,35 @@ int tty_write(int fd, const char * buf, int nbytes, int *nbytes_written)
     buf += bytes_w;
     nbytes -= bytes_w;
   }
-
-  return TTY_OK;
+#else //WIN32:
+	DWORD bytes_w = 0;
+	*nbytes_written = 0;
+	
+	while (nbytes > 0)
+	{
+		// All uses of COMMTIMEOUTS set write timeouts to 0,
+		// so this should return immediately.
+		if (!WriteFile(fd, buf, nbytes, &bytes_w, NULL))
+		{
+			return TTY_WRITE_ERROR;
+		}
+		
+		// NOTE: I am really curious if this logic will work on Windows. --BM
+		*nbytes_written += bytes_w;
+		buf += bytes_w;
+		nbytes -= bytes_w;
+	}
+#endif
+	
+	return TTY_OK;
 }
 
-int tty_write_string(int fd, const char * buf, int *nbytes_written)
+int tty_write_string(FD fd, const char * buf, int *nbytes_written)
 {
-    if (fd == -1)
+	if (!IS_VALID_FD(fd))
            return TTY_ERRNO;
 
+#ifndef _WIN32
   unsigned int nbytes;
   int bytes_w = 0;
   *nbytes_written = 0;
@@ -326,21 +349,44 @@ int tty_write_string(int fd, const char * buf, int *nbytes_written)
     buf += bytes_w;
     nbytes -= bytes_w;
   }
-
-  return TTY_OK;
+#else //_WIN32:
+	unsigned int nbytes = 0;
+	DWORD bytes_w = 0;
+	*nbytes_written = 0;
+	
+	nbytes = strlen(buf); // And this is pretty much the difference. --BM
+	
+	while (nbytes > 0)
+	{
+		// All uses of COMMTIMEOUTS set write timeouts to 0,
+		// so this should return immediately.
+		if (!WriteFile(fd, buf, nbytes, &bytes_w, NULL))
+		{
+			return TTY_WRITE_ERROR;
+		}
+		
+		// NOTE: I am really curious if this logic will work on Windows. --BM
+		*nbytes_written += bytes_w;
+		buf += bytes_w;
+		nbytes -= bytes_w;
+	}
+#endif
+	
+	return TTY_OK;
 }
 
-int tty_read(int fd, char *buf, int nbytes, int timeout, int *nbytes_read)
+int tty_read(FD fd, char *buf, int nbytes, int timeout, int *nbytes_read)
 {
-    if (fd == -1)
-           return TTY_ERRNO;
+	if (!IS_VALID_FD(fd))
+		return TTY_ERRNO;
+	
+	if (nbytes <= 0)
+	  return TTY_PARAM_ERROR;
 
+#ifndef _WIN32
  int bytesRead = 0;
  int err = 0;
  *nbytes_read =0;
-
-  if (nbytes <=0)
-	return TTY_PARAM_ERROR;
 
   while (nbytes > 0)
   {
@@ -356,15 +402,43 @@ int tty_read(int fd, char *buf, int nbytes, int timeout, int *nbytes_read)
      *nbytes_read += bytesRead;
      nbytes -= bytesRead;
   }
-
-  return TTY_OK;
+#else //_WIN32:
+	DWORD bytes_r = 0;
+	*nbytes_read = 0;
+	
+	COMMTIMEOUTS timeouts;
+	timeouts.ReadIntervalTimeout = MAXDWORD;
+	timeouts.ReadTotalTimeoutMultiplier = MAXDWORD; //Are we sure this isn't 0?
+	timeouts.ReadTotalTimeoutConstant = 1000 * timeout;
+	timeouts.WriteTotalTimeoutConstant = 0;
+	timeouts.WriteTotalTimeoutMultiplier = 0;
+	if (!SetCommTimeouts(fd, &timeouts))
+	{
+		return TTY_ERRNO;
+	}
+	
+	while (nbytes > 0)
+	{
+		if (!ReadFile(fd, buf, nbytes, &bytes_r, NULL))
+		{
+			return TTY_READ_ERROR;
+		}
+		
+		buf += bytes_r;
+		*nbytes_read += bytes_r;
+		nbytes -= bytes_r;
+	}
+#endif
+	
+	return TTY_OK;
 }
 
-int tty_read_section(int fd, char *buf, char stop_char, int timeout, int *nbytes_read)
+int tty_read_section(FD fd, char *buf, char stop_char, int timeout, int *nbytes_read)
 {
-    if (fd == -1)
-           return TTY_ERRNO;
+	if (!IS_VALID_FD(fd))
+		return TTY_ERRNO;
 
+#ifndef _WIN32
  int bytesRead = 0;
  int err = TTY_OK;
  *nbytes_read = 0;
@@ -389,6 +463,43 @@ int tty_read_section(int fd, char *buf, char stop_char, int timeout, int *nbytes
   }
 
   return TTY_TIME_OUT;
+#else //_WIN32:
+	DWORD bytes_r = 0;
+	*nbytes_read = 0;
+	
+	// Wait until something is to be read or time out
+	COMMTIMEOUTS timeouts;
+	timeouts.ReadIntervalTimeout = MAXDWORD;
+	timeouts.ReadTotalTimeoutMultiplier = MAXDWORD; //Are we sure this isn't 0?
+	timeouts.ReadTotalTimeoutConstant = 1000 * timeout;
+	timeouts.WriteTotalTimeoutConstant = 0;
+	timeouts.WriteTotalTimeoutMultiplier = 0;
+	if (!SetCommTimeouts(fd, &timeouts))
+	{
+		return TTY_ERRNO;
+	}
+	
+	while (1)
+	{
+		if (!ReadFile(fd, buf, 1, &bytes_r, NULL))
+		{
+			return TTY_READ_ERROR;
+		}
+		
+		if (bytes_r)
+		{
+			*nbytes_read += bytes_r;
+			
+			if (*buf == stop_char)
+				return TTY_OK;
+			
+			buf += bytes_r;
+		}
+	}
+	
+	// This should never be reached.
+	return TTY_ERRNO;
+#endif
 }
 
 #if defined(BSD) && !defined(__GNU__)
@@ -671,13 +782,11 @@ error:
 
     return TTY_PORT_FAILURE;
 }
-#else
-int tty_connect(const char *device, int bit_rate, int word_size, int parity, int stop_bits, int *fd)
+#else // not (defined(BSD) && !defined(__GNU__))
+// Unix - Linux version (and Windows tacked on)
+int tty_connect(const char *device, int bit_rate, int word_size, int parity, int stop_bits, FD *fd)
 {
-#ifdef _WIN32
-  return TTY_PORT_FAILURE;
-
-#else
+#ifndef _WIN32
  int t_fd=-1;
  char msg[80];
  int bps;
@@ -864,21 +973,227 @@ int tty_connect(const char *device, int bit_rate, int word_size, int parity, int
   *fd = t_fd;
   /* return success */
   return TTY_OK;
+#else //_WIN32:
+	// 
+	HANDLE handle = INVALID_HANDLE_VALUE;
+	DCB dcb;
+	
+	// Open handle
+	handle = CreateFile(device,
+	                    GENERIC_READ | GENERIC_WRITE,
+	                    0, // No sharing, exclusive access (obligatory for s.p)
+	                    NULL,
+	                    OPEN_EXISTING, // Obligatory for serial ports
+	                    FILE_ATTRIBUTE_NORMAL,
+	                    NULL); // No template (obligatory for serial ports)
+	if (handle == INVALID_HANDLE_VALUE)
+	{
+		fprintf(stderr, "tty_connect: CreateFile() failed: %lu",
+		        GetLastError());
+		*fd = INVALID_HANDLE_VALUE;
+		return TTY_PORT_FAILURE;
+	}
+	
+	// Init DCB
+	ZeroMemory(&dcb, sizeof(DCB));
+	dcb.DCBlength = sizeof(DCB);
+	dcb.fBinary = TRUE; // Obligatory?
+	
+	// BPS rate, a.k.a. baud rate
+	// NOTE: Some kind of warning for the non-standard ones?
+	// TODO: Put all non-standard ones in a single case?
+	switch (bit_rate)
+	{
+	case 0:
+		dcb.BaudRate = 0;
+		break;
+	case 50:
+		dcb.BaudRate = 50;
+		break;
+	case 75:
+		dcb.BaudRate = 75;
+		break;
+	case 110:
+		dcb.BaudRate = CBR_110;
+		break;
+	case 134:
+		dcb.BaudRate = 134;
+		break;
+	case 150:
+		dcb.BaudRate = 150;
+		break;
+	case 200:
+		dcb.BaudRate = 200;
+		break;
+	case 300:
+		dcb.BaudRate = CBR_300;
+		break;
+	case 600:
+		dcb.BaudRate = CBR_600;
+		break;
+	case 1200:
+		dcb.BaudRate = CBR_1200;
+		break;
+	case 1800:
+		dcb.BaudRate = 1800;
+		break;
+	case 2400:
+		dcb.BaudRate = CBR_2400;
+		break;
+	case 4800:
+		dcb.BaudRate = CBR_4800;
+		break;
+	case 9600:
+		dcb.BaudRate = CBR_9600;
+		break;
+	case 19200:
+		dcb.BaudRate = CBR_19200;
+		break;
+	case 38400:
+		dcb.BaudRate = CBR_38400;
+		break;
+	case 57600:
+		dcb.BaudRate = CBR_57600;
+		break;
+	case 115200:
+		dcb.BaudRate = CBR_115200;
+		break;
+	case 230400:
+		dcb.BaudRate = 230400;
+	default:
+		fprintf(stderr, "tty_connect: %d is not a valid bit rate.\n",
+		        bit_rate);
+		tty_disconnect(handle);
+		return TTY_PARAM_ERROR;
+	}
+	
+	// Word size
+	switch (word_size)
+	{
+	case 5:
+		dcb.ByteSize = 5;
+		break;
+	case 6:
+		dcb.ByteSize = 6;
+		break;
+	case 7:
+		dcb.ByteSize = 7;
+		break;
+	case 8:
+		dcb.ByteSize = 8;
+		break;
+	default:
+		fprintf(stderr, "tty_connect: %d is not a valid data bit count.",
+		        word_size);
+		tty_disconnect(handle);
+		return TTY_PARAM_ERROR;
+	}
+	
+	// Parity
+	switch (parity)
+	{
+	case PARITY_NONE:
+		dcb.Parity = NOPARITY;
+		break;
+	case PARITY_EVEN:
+		dcb.Parity = EVENPARITY;
+		break;
+	case PARITY_ODD:
+		dcb.Parity = ODDPARITY;
+		break;
+	default:
+		fprintf(stderr,
+		        "tty_connect: %d is not a valid parity selection value.\n",
+		        parity);
+		tty_disconnect(handle);
+		return TTY_PARAM_ERROR;
+	}
+
+	// Stop bits
+	switch (stop_bits)
+	{
+	case 1:
+		dcb.StopBits = ONESTOPBIT;
+		break;
+	case 2:
+		dcb.StopBits = TWOSTOPBITS;
+		break;
+	default:
+		fprintf(stderr, "tty_connect: %d is not a valid stop bit count.",
+		        stop_bits);
+		tty_disconnect(handle);
+		return TTY_PARAM_ERROR;
+	}
+
+	// (The DCB struct was already initialized with 0s, so just enable things.)
+	//  termios control flags
+	// ~HUPCL (no equivalent?)
+	// ~CRTSCTS (turn off RTS/CTS flow control)
+	dcb.fRtsControl = FALSE; // This is probably already false
+	// CLOCAL ("modem control lines" == DSR/RTS? "not a modem"?)
+	// CREAD ("enables receiver"?)
+	
+	// termios input flags
+	// ~ISTRIP, ~IGNCR, ~ICRNL, ~INLCR (no equivalent?)
+	// ~IXON, ~IXOFF, ~IXANY (XON/XOFF flow control is disabled)
+	// INPCK (enable partiy checking)
+	dcb.fParity = TRUE;
+	// ~PARMRK, IGNPAR (do not replace wrong parity bytes)
+	dcb.fErrorChar = FALSE; // This is probably already false
+	// IGNBRK (no equivalent? Win requires explicit effort to handle BREAK?)
+	
+	// termios output flags
+	// ~OPOST (no equivalent?)
+	// ~ONCLR (no equivalent?)
+	
+	// termios local flags
+	// ~ICANON (no equivalent?)
+	// ~ECHO, ECHOE (no equivalent?)
+	// ~ISIG, ~IEXTEN (no equivalent?)
+	// ~TOSTOP (no equivalent?)
+	// NOFLSH (no equivalent?)
+	
+	// Finally set the properties
+	if (!SetCommState(handle, &dcb))
+	{
+		fprintf(stderr, "tty_connect: SetCommState() error: %lu",
+		        GetLastError());
+		tty_disconnect(handle);
+		return TTY_PORT_FAILURE;
+	}
+	
+	// Set timeouts to "return immediately" for now
+	COMMTIMEOUTS timeouts;
+	timeouts.ReadIntervalTimeout = MAXDWORD;
+	timeouts.ReadTotalTimeoutConstant = 0;
+	timeouts.ReadTotalTimeoutMultiplier = 0;
+	timeouts.WriteTotalTimeoutConstant = 0;
+	timeouts.WriteTotalTimeoutMultiplier = 0;
+	if (!SetCommTimeouts(handle, &timeouts))
+	{
+		fprintf(stderr, "tty_connect: SetCommTimeouts error: %lu",
+		        GetLastError());
+		tty_disconnect(handle);
+		return TTY_PORT_FAILURE;
+	}
+	
+	// TODO: CommMask?
+	
+	// If this point is reached, the serial port should have been opened
+	*fd = handle;
+	return TTY_OK;
 #endif
 }
-// Unix - Linux version
 
 #endif
 
 
-int tty_disconnect(int fd)
+int tty_disconnect(FD fd)
 {
-    if (fd == -1)
-           return TTY_ERRNO;
+	if (!IS_VALID_FD(fd))
+		return TTY_ERRNO;
 
-#ifdef _WIN32
-	return TTY_ERRNO;
-#else
+#ifndef _WIN32
 	int err;
 	tcflush(fd, TCIOFLUSH);
 	err = close(fd);
@@ -887,26 +1202,56 @@ int tty_disconnect(int fd)
 		return TTY_ERRNO;
 
         return TTY_OK;
+#else
+	PurgeComm(fd, TCIOFLUSH);
+	if (!CloseHandle(fd))
+		return TTY_ERRNO;
+	else
+		return TTY_OK;
 #endif
 }
 
 void tty_error_msg(int err_code, char *err_msg, int err_msg_len)
 {
-      char error_string[512];
+	char error_string[512];
+	
+#ifdef _WIN32
+	LPTSTR suberror_string = NULL;
+	DWORD suberror_length;
+	suberror_length = FormatMessage( FORMAT_MESSAGE_ALLOCATE_BUFFER | 
+	                                 FORMAT_MESSAGE_FROM_SYSTEM | 
+	                                 FORMAT_MESSAGE_IGNORE_INSERTS,
+	                                 NULL,
+	                                 GetLastError(),
+	                                 MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+	                                 suberror_string,
+	                                 0,
+	                                 NULL);
+	if (suberror_length <= 0)
+		suberror_string = NULL;
+#endif
 
-  switch (err_code)
- {
+	switch (err_code)
+	{
 	case TTY_OK:
 		strncpy(err_msg, "No Error", err_msg_len);
 		break;
 
 	case TTY_READ_ERROR:
+#ifndef _WIN32
 		snprintf(error_string, 512, "Read Error: %s", strerror(errno));
+#else
+		snprintf(error_string, 512, "Read Error: %s", suberror_string);
+#endif
 		strncpy(err_msg, error_string, err_msg_len);
 		break;
 		
-       case TTY_WRITE_ERROR:
+	case TTY_WRITE_ERROR:
+#ifndef _WIN32
 		snprintf(error_string, 512, "Write Error: %s", strerror(errno));
+#else
+		snprintf(error_string, 512, "Write Error: %s", suberror_string);
+#endif
 		strncpy(err_msg, error_string, err_msg_len);
 		break;
 
@@ -920,10 +1265,15 @@ void tty_error_msg(int err_code, char *err_msg, int err_msg_len)
 		break;
 
 	case TTY_PORT_FAILURE:
+#ifndef _WIN32
       if (errno == EACCES)
         snprintf(error_string, 512, "Port failure Error: %s. Try adding your user to the dialout group and restart (sudo adduser $username dialout)", strerror(errno));
       else
         snprintf(error_string, 512, "Port failure Error: %s. Check if device is connected to this port.", strerror(errno));
+#else
+		snprintf(error_string, 512, "Serial port error: %s",
+		         suberror_string);
+#endif
 
 		strncpy(err_msg, error_string, err_msg_len);
 		break;
@@ -933,16 +1283,23 @@ void tty_error_msg(int err_code, char *err_msg, int err_msg_len)
 		break;
 
 	case TTY_ERRNO:
+#ifndef _WIN32
 		snprintf(error_string, 512, "%s", strerror(errno));
+#else
+		snprintf(error_string, 512, "%s", suberror_string);
+#endif
 		strncpy(err_msg, error_string, err_msg_len);
 		break;
 
 	default:
 		strncpy(err_msg, "Error: unrecognized error code", err_msg_len);
 		break;
-
-
-   }	
+	}
+	
+#ifdef _WIN32
+	if (suberror_string)
+		LocalFree(suberror_string);
+#endif
 }
 
 /* return static string corresponding to the given property or light state */
