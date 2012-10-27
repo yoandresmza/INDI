@@ -677,6 +677,7 @@ clientMsgCB (FD fd, void *arg)
 	if (!ReadFile(fd, buf, sizeof(buf), &dnr, NULL))
 	{
 		fprintf (stderr, "%s: %s\n", me, GetLastError());
+		fflush(stderr);
 		exit(1);
 	}
 	nr = (int) dnr;

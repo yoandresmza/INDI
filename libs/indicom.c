@@ -231,6 +231,9 @@ IDLog (const char *fmt, ...)
 	va_start (ap, fmt);
 	vfprintf (stderr, fmt, ap);
 	va_end (ap);
+#ifdef _WIN32
+	fflush(stderr);
+#endif
 }
 
 /* return current system time in message format */
@@ -990,6 +993,7 @@ int tty_connect(const char *device, int bit_rate, int word_size, int parity, int
 	{
 		fprintf(stderr, "tty_connect: CreateFile() failed: %lu",
 		        GetLastError());
+		fflush(stderr);
 		*fd = INVALID_HANDLE_VALUE;
 		return TTY_PORT_FAILURE;
 	}
@@ -1063,6 +1067,7 @@ int tty_connect(const char *device, int bit_rate, int word_size, int parity, int
 	default:
 		fprintf(stderr, "tty_connect: %d is not a valid bit rate.\n",
 		        bit_rate);
+		fflush(stderr);
 		tty_disconnect(handle);
 		return TTY_PARAM_ERROR;
 	}
@@ -1085,6 +1090,7 @@ int tty_connect(const char *device, int bit_rate, int word_size, int parity, int
 	default:
 		fprintf(stderr, "tty_connect: %d is not a valid data bit count.",
 		        word_size);
+		fflush(stderr);
 		tty_disconnect(handle);
 		return TTY_PARAM_ERROR;
 	}
@@ -1105,6 +1111,7 @@ int tty_connect(const char *device, int bit_rate, int word_size, int parity, int
 		fprintf(stderr,
 		        "tty_connect: %d is not a valid parity selection value.\n",
 		        parity);
+		fflush(stderr);
 		tty_disconnect(handle);
 		return TTY_PARAM_ERROR;
 	}
@@ -1121,6 +1128,7 @@ int tty_connect(const char *device, int bit_rate, int word_size, int parity, int
 	default:
 		fprintf(stderr, "tty_connect: %d is not a valid stop bit count.",
 		        stop_bits);
+		fflush(stderr);
 		tty_disconnect(handle);
 		return TTY_PARAM_ERROR;
 	}
@@ -1158,6 +1166,7 @@ int tty_connect(const char *device, int bit_rate, int word_size, int parity, int
 	{
 		fprintf(stderr, "tty_connect: SetCommState() error: %lu",
 		        GetLastError());
+		fflush(stderr);
 		tty_disconnect(handle);
 		return TTY_PORT_FAILURE;
 	}
@@ -1173,6 +1182,7 @@ int tty_connect(const char *device, int bit_rate, int word_size, int parity, int
 	{
 		fprintf(stderr, "tty_connect: SetCommTimeouts error: %lu",
 		        GetLastError());
+		fflush(stderr);
 		tty_disconnect(handle);
 		return TTY_PORT_FAILURE;
 	}
