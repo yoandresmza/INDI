@@ -214,7 +214,8 @@ void uploadFile(const char* filename)
    }
    
    /* #3 Open the FITS file */
-   fitsFile = fopen(filename, "r");
+   // fread() fails on Windows if the file is not opened as a binary file. --BM
+   fitsFile = fopen(filename, "rb");
    
    if (fitsFile == NULL)
     return;
