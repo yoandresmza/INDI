@@ -129,7 +129,7 @@ add_executable(indiserver ${indiserver_SRCS} ${liblilxml_SRCS})
 
 if(WIN32)
 	target_link_libraries(indiserver ws2_32)
-	# Enable jobs:
+	# Flag necessary to enable jobs
 	set_target_properties(indiserver PROPERTIES COMPILE_FLAGS
 	                      -D_WIN32_WINNT=0x0500)
 else(WIN32)
@@ -178,6 +178,12 @@ install(TARGETS indimain ARCHIVE DESTINATION ${LIB_DESTINATION})
 # To link with main() and indibase classes       #
 ##################################################
 add_library(indidriver STATIC ${indimain_SRCS} ${indidriver_SRCS})
+if(WIN32)
+	target_link_libraries(indidriver shlwapi) # PathAppend()
+	# Flags necessary to enable Win shell features
+	set_target_properties(indidriver PROPERTIES COMPILE_FLAGS
+	                       -D_WIN32_IE=0x0500)
+endif(WIN32)
 install(TARGETS indidriver ARCHIVE DESTINATION ${LIB_DESTINATION})
 
 ##################################################
@@ -734,7 +740,8 @@ endif (NOVA_FOUND)
 if (CFITSIO_FOUND)
 
 set(tutorialfour_SRCS
-        ${indimain_SRCS}
+# Unnecessary because of the dependency; triggers rebuild of indidriver.c
+#        ${indimain_SRCS} 
         ${CMAKE_SOURCE_DIR}/examples/tutorial_four.cpp
    )
 

@@ -178,6 +178,7 @@ bool INDI::DefaultDevice::loadDefaultConfig()
     if (getenv("INDICONFIG"))
         snprintf(configDefaultFileName, MAXRBUF, "%s.default", getenv("INDICONFIG"));
     else
+        // TODO: Replace call to getenv("HOME") --BM
         snprintf(configDefaultFileName, MAXRBUF, "%s/.indi/%s_config.xml.default", getenv("HOME"), deviceID);
 
     if (pDebug)

@@ -149,6 +149,7 @@ bool TestDevice::initProperties()
     // This is the default driver skeleton file location
     // Convention is: drivername_sk_xml
     // Default location is /usr/share/indi
+	// TODO: Replace /usr/share/indi with Windows default path. --BM
     const char *skelFileName = "/usr/share/indi/tutorial_four_sk.xml";
     struct stat st;
 

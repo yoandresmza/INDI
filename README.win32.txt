@@ -50,12 +50,43 @@ Just make sure to uses the proper -G option for CMake:
 CMake can also generate project files for CodeBlocks, Eclipse and Visual Studio:
 http://www.cmake.org/cmake/help/v2.8.9/cmake.html#section_Generators
 
+Useful make targets so far:
+ - indiserver (with some limitations: no FIFO; not completely tested)
+ - tutorial_one
+ - tutorial_two
+ - tutorial_three (FITS sending successfully fixed and tested on Windows)
+ - tutorial_rain
+ - tutorial_dome
+
+Some of the other targets can be compiled successfully, but do not work or
+have not been tested.
+
 Progress
 --------
 
 Or what works so far:
  - indiserver can accept connections from clients and start driver sub-processes
- - the tutorial_* drivers seem to work
+ - the tutorial_* drivers seem to work, or at least to compile without problems
+
+Other work:
+ - serial port routines have been ported, but have not been tested yet
+ 
+To Do
+-----
+
+Major features and design decisions:
+ - decide what will be the Windows equivalent of the common data directory
+   (hardcoded as /usr/share/indi, DATA_INSTALL_DIR in the CMakeLists.txt)
+ - replace direct calls to serial port read/write in the standard drivers
+ - FIFO for indiserver and probably an auxillary program to open/close/send
+   commands.
+ - getINDIproperty, setINDIproperty and evalINDI: workaround  for the
+   signal/alarm architecture used for timeouts.
+ - Windows installer (Inno Setup as Stellarium?) - has to modify the PATH and
+   possibly other environmental variables; modules?; .bat example starter?
+ - dealing with various Unicode strings, such as home directory paths that
+   contain a non-ASCII username
+ 
 
 Authors
 -------

@@ -122,6 +122,7 @@ void ISSnoopDevice (XMLEle *root)
 *****************************************************************/
 TCFS::TCFS()
 {
+	// TODO: Windows equivalent of /usr/share
     const char *skelFileName = "/usr/share/indi/indi_tcfs_sk.xml";
     struct stat st;
 

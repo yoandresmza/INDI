@@ -30,6 +30,9 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#ifdef _WIN32
+#include <shlwapi.h>
+#endif
 
 #include "lilxml.h"
 #include "base64.h"
@@ -1005,6 +1008,7 @@ int IUReadConfig(const char *filename, const char *dev, char errmsg[])
         if (getenv("INDICONFIG"))
             strncpy(configFileName, getenv("INDICONFIG"), MAXRBUF);
         else
+           // TODO: Replace call to getenv("HOME") --BM
            snprintf(configFileName, MAXRBUF, "%s/.indi/%s_config.xml", getenv("HOME"), dev);
 
     }
@@ -1061,6 +1065,7 @@ void IUSaveDefaultConfig(const char *source_config, const char *dest_config, con
         if (getenv("INDICONFIG"))
            strncpy(configFileName, getenv("INDICONFIG"), MAXRBUF);
         else
+           // TODO: Replace call to getenv("HOME") --BM
            snprintf(configFileName, MAXRBUF, "%s/.indi/%s_config.xml", getenv("HOME"), dev);
 
     }
@@ -1070,6 +1075,7 @@ void IUSaveDefaultConfig(const char *source_config, const char *dest_config, con
      else if (getenv("INDICONFIG"))
          snprintf(configDefaultFileName, MAXRBUF, "%s.default", getenv("INDICONFIG"));
      else
+        // TODO: Replace call to getenv("HOME") --BM
         snprintf(configDefaultFileName, MAXRBUF, "%s/.indi/%s_config.xml.default", getenv("HOME"), dev);
 
   // If the default doesn't exist, create it.
@@ -1125,8 +1131,27 @@ FILE * IUGetConfigFP(const char *filename, const char *dev, char errmsg[])
     struct stat st;
     FILE *fp = NULL;
 
+#ifndef _WIN32
     snprintf(configDir, MAXRBUF, "%s/.indi/", getenv("HOME"));
+#else
+	if (!SUCCEEDED(SHGetFolderPath(NULL,
+	                               CSIDL_APPDATA, // Really unlikely to be missing
+	                               NULL,
+	                               SHGFP_TYPE_CURRENT,
+	                               configDir)))
+	{
+		// TODO: Error message: Can't find dir
+		// TODO: Deal with SHGetFolderPath()'s idiosyncratic return values
+		return NULL;
+	}
+	if (!PathAppend(configDir, "\\.indi\\"))
+	{
+		// TODO: Error message: Can't find dir
+		return NULL;
+	}
+#endif
 
+	// TODO: Deal with Unicode user directory names
     if (filename)
          strncpy(configFileName, filename, MAXRBUF);
      else
@@ -1137,7 +1162,7 @@ FILE * IUGetConfigFP(const char *filename, const char *dev, char errmsg[])
            snprintf(configFileName, MAXRBUF, "%s%s_config.xml", configDir, dev);
 
     }
-
+    
      if(stat(configDir,&st) != 0)
      {
 #ifndef _WIN32
