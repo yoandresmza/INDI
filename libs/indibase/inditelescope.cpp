@@ -69,7 +69,11 @@ bool INDI::Telescope::initProperties()
     IUFillSwitch(&AbortS[0],"ABORT","Abort",ISS_OFF);
     IUFillSwitchVector(&AbortSV,AbortS,1,getDeviceName(),"TELESCOPE_ABORT_MOTION","Abort Motion",MAIN_CONTROL_TAB,IP_RW,ISR_1OFMANY,60,IPS_IDLE);
 
+#ifndef _WIN32
     IUFillText(&PortT[0],"PORT","Port","/dev/ttyUSB0");
+#else
+    IUFillText(&PortT[0],"PORT","Port","COM1");
+#endif
     IUFillTextVector(&PortTP,PortT,1,getDeviceName(),"DEVICE_PORT","Ports",OPTIONS_TAB,IP_RW,60,IPS_IDLE);
 
     IUFillSwitch(&MovementNSS[MOTION_NORTH], "MOTION_NORTH", "North", ISS_OFF);

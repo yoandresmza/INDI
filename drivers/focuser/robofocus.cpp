@@ -133,7 +133,11 @@ bool RoboFocus::initProperties()
     IUUpdateMinMax(&FocusSpeedNP);
 
     /* Port */
+#ifndef _WIN32
     IUFillText(&PortT[0], "PORT", "Port", "/dev/ttyUSB0");
+#else
+	IUFillText(&PortT[0], "PORT", "Port", "COM1");
+#endif
     IUFillTextVector(&PortTP, PortT, 1, getDeviceName(), "DEVICE_PORT", "Ports", MAIN_CONTROL_TAB, IP_RW, 0, IPS_IDLE);
 
 

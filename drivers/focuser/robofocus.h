@@ -46,7 +46,7 @@ public:
 
 private:
 
-    int PortFD;
+    FD PortFD;
 
     unsigned char CheckSum(char *rf_cmd);
     unsigned char CalculateSum(char *rf_cmd);

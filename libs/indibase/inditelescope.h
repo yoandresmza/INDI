@@ -153,7 +153,7 @@ class INDI::Telescope : public INDI::DefaultDevice
         //  We put the serial helper into the base telescope class
         //  One less piece to worry about in the hardware specific
         //  low level stuff
-        int PortFD;
+        FD PortFD;
 
         //  This is a variable filled in by the ReadStatus telescope
         //  low level code, used to report current state

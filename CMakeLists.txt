@@ -318,7 +318,8 @@ install(TARGETS indi_intelliscope RUNTIME DESTINATION bin )
 
 ########### Syncscan ###############
 set(synscan_SRCS
-   ${indimain_SRCS}
+# Unnecessary because of the dependency; triggers rebuild of indidriver.c
+#        ${indimain_SRCS}
    ${CMAKE_SOURCE_DIR}/drivers/telescope/synscanmount.cpp )
 
 add_executable(indi_synscan ${synscan_SRCS} ${liblilxml_SRCS} ${libindicom_SRCS})
@@ -422,7 +423,8 @@ install(TARGETS indi_simulator_focus RUNTIME DESTINATION bin )
 ################ Robo Focuser ################
 
 set(robofocus_SRCS
-	${indimain_SRCS}
+# Unnecessary because of the dependency; triggers rebuild of indidriver.c
+#        ${indimain_SRCS}
         ${CMAKE_SOURCE_DIR}/drivers/focuser/robofocus.cpp
    )
 
@@ -741,7 +743,7 @@ if (CFITSIO_FOUND)
 
 set(tutorialfour_SRCS
 # Unnecessary because of the dependency; triggers rebuild of indidriver.c
-#        ${indimain_SRCS} 
+#        ${indimain_SRCS}
         ${CMAKE_SOURCE_DIR}/examples/tutorial_four.cpp
    )
 
