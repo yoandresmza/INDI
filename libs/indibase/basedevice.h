@@ -94,6 +94,10 @@ public:
     */
     INDI::Property * getProperty(const char *name, INDI_TYPE type = INDI_UNKNOWN);
 
+    /** \brief Return a list of all properties in the device.
+    */
+    std::vector<INDI::Property *> * getProperties() { return &pAll; }
+
     /** \brief Build driver properties from a skeleton file.
         \param filename full path name of the file.
 
@@ -108,7 +112,6 @@ public:
 
     /** \return True if the device is connected (CONNECT=ON), False otherwise */
     bool isConnected();
-
 
     /** \brief Set the device name
       \param dev new device name
@@ -139,6 +142,15 @@ public:
     /** \returns Get the meditator assigned to this driver */
     INDI::BaseMediator * getMediator() { return mediator; }
 
+    /** \return driver name
+     *  \note This can only be valid if DRIVER_INFO is defined by the driver.
+     **/
+    const char *getDriverName();
+
+    /** \return driver executable name
+     *  \note This can only be valid if DRIVER_INFO is defined by the driver.
+     **/
+    const char *getDriverExec();
 
 protected:
 
@@ -152,7 +164,6 @@ protected:
     int setValue (XMLEle *root, char * errmsg);
     /** \brief Parse and store BLOB in the respective vector */
     int setBLOB(IBLOBVectorProperty *pp, XMLEle * root, char * errmsg);
-
 
 private:
 
