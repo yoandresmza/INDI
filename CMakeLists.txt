@@ -174,7 +174,16 @@ set_target_properties(indi PROPERTIES VERSION ${CMAKE_INDI_VERSION_STRING} SOVER
 ############ INDI Main Shared Library #############
 # To link with main() for 3rd party legacy drivers#
 ###################################################
-add_library(indimain SHARED ${indimain_SRCS} ${libindicom_SRCS} ${liblilxml_SRCS})
+
+# Because of undefined references in indidriver.c dispatch() due to a limitation
+# of MinGW and/or Windows DLLs for weak linking (if it's the right term) --BM
+if(WIN32)
+SET(DRIVER_LIBRARY_TYPE STATIC)
+else(WIN32)
+SET(DRIVER_LIBRARY_TYPE SHARED)
+endif(WIN32)
+
+add_library(indimain ${DRIVER_LIBRARY_TYPE} ${indimain_SRCS} ${libindicom_SRCS} ${liblilxml_SRCS})
 if (NOVA_FOUND)
 target_link_libraries(indimain ${NOVA_LIBRARIES})
 endif(NOVA_FOUND)
@@ -182,20 +191,23 @@ if (CFITSIO_FOUND)
 target_link_libraries(indimain ${CFITSIO_LIBRARIES})
 endif(CFITSIO_FOUND)
 
+if(WIN32)
+install(TARGETS indimain RUNTIME DESTINATION ${LIB_DESTINATION}
+                         ARCHIVE DESTINATION ${LIB_DESTINATION})
+target_link_libraries(indimain shlwapi) # PathAppend()
+# Flags necessary to enable Win shell features
+set_target_properties(indimain PROPERTIES COMPILE_FLAGS
+                               -D_WIN32_IE=0x0500)
+else(WIN32)
 install(TARGETS indimain LIBRARY DESTINATION ${LIB_DESTINATION})
+endif(WIN32)
 set_target_properties(indimain PROPERTIES VERSION ${CMAKE_INDI_VERSION_STRING} SOVERSION ${INDI_SOVERSION})
 
 ##################################################
 ########## INDI Default Driver Library ###########
 # To link with main() and indibase classes  ######
 ##################################################
-add_library(indidriver SHARED ${libindicom_SRCS} ${liblilxml_SRCS} ${indimain_SRCS} ${indidriver_SRCS})
-if(WIN32)
-	target_link_libraries(indidriver shlwapi) # PathAppend()
-	# Flags necessary to enable Win shell features
-	set_target_properties(indidriver PROPERTIES COMPILE_FLAGS
-	                       -D_WIN32_IE=0x0500)
-endif(WIN32)
+add_library(indidriver ${DRIVER_LIBRARY_TYPE} ${libindicom_SRCS} ${liblilxml_SRCS} ${indimain_SRCS} ${indidriver_SRCS})
 target_link_libraries(indidriver ${LIBUSB_LIBRARIES})
 if (NOVA_FOUND)
 target_link_libraries(indidriver ${NOVA_LIBRARIES})
@@ -203,7 +215,16 @@ endif(NOVA_FOUND)
 if (CFITSIO_FOUND)
 target_link_libraries(indidriver ${CFITSIO_LIBRARIES})
 endif(CFITSIO_FOUND)
+if(WIN32)
+target_link_libraries(indidriver shlwapi) # PathAppend()
+# Flags necessary to enable Win shell features
+set_target_properties(indidriver PROPERTIES COMPILE_FLAGS
+                                 -D_WIN32_IE=0x0500)
+install(TARGETS indidriver RUNTIME DESTINATION ${LIB_DESTINATION}
+                           ARCHIVE DESTINATION ${LIB_DESTINATION})
+else(WIN32)
 install(TARGETS indidriver LIBRARY DESTINATION ${LIB_DESTINATION})
+endif(WIN32)
 set_target_properties(indidriver PROPERTIES VERSION ${CMAKE_INDI_VERSION_STRING} SOVERSION ${INDI_SOVERSION})
 
 #install(TARGETS indidriver ARCHIVE DESTINATION ${LIB_DESTINATION})
