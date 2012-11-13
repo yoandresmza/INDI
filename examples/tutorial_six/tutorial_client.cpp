@@ -20,6 +20,10 @@
 
 #endif
 
+/** \file tutorial_client.cpp
+    \brief Construct a basic INDI client that demonstrates INDI::Client capabilities. This client must be used with tutorial_three device "Simple CCD".
+    \author Jasem Mutlaq
+*/
 
 #include <string>
 #include <iostream>
@@ -46,7 +50,7 @@
 
 using namespace std;
 
-#define MYCCD "CCD Simulator"
+#define MYCCD "Simple CCD"
 
 /* Our client auto pointer */
 auto_ptr<MyClient> camera_client(0);
@@ -112,11 +116,10 @@ void MyClient::setTemperature()
 ***************************************************************************************/
 void MyClient::newDevice(INDI::BaseDevice *dp)
 {
-    if (!strcmp(dp->getDeviceName(), "CCD Simulator"))
-       IDLog("Receiving CCD Simulator Device...\n");
+    if (!strcmp(dp->getDeviceName(), MYCCD))
+        IDLog("Receiving %s Device...\n", dp->getDeviceName());
 
     ccd_simulator = dp;
-
 }
 
 /**************************************************************************************
@@ -125,26 +128,20 @@ void MyClient::newDevice(INDI::BaseDevice *dp)
 void MyClient::newProperty(INDI::Property *property)
 {
 
-     if (!strcmp(property->getDeviceName(), "CCD Simulator") && !strcmp(property->getName(), "CCD_TEMPERATURE"))
-     {
-             IDLog("CCD_TEMPERATURE standard property defined. Attempting connection to CCD...\n");
-             connectDevice(MYCCD);
-     }
-}
-
-/**************************************************************************************
-**
-***************************************************************************************/
-void MyClient::newSwitch(ISwitchVectorProperty *svp)
-{
-    // Let's check if we're ON
-    if (!strcmp(svp->name, "CONNECTION"))
+    if (!strcmp(property->getDeviceName(), MYCCD) && !strcmp(property->getName(), "CONNECTION"))
     {
-        if (svp->sp[0].s == ISS_ON)
+        connectDevice(MYCCD);
+        return;
+    }
+
+    if (!strcmp(property->getDeviceName(), MYCCD) && !strcmp(property->getName(), "CCD_TEMPERATURE"))
+    {
+        if (ccd_simulator->isConnected())
         {
             IDLog("CCD is connected. Setting temperature to -20 C.\n");
             setTemperature();
         }
+        return;
     }
 }
 
@@ -168,10 +165,9 @@ void MyClient::newNumber(INumberVectorProperty *nvp)
 ***************************************************************************************/
 void MyClient::newMessage(INDI::BaseDevice *dp, int messageID)
 {
-     if (strcmp(dp->getDeviceName(), "CCD Simulator"))
+     if (strcmp(dp->getDeviceName(), MYCCD))
          return;
 
      IDLog("Recveing message from Server:\n\n########################\n%s\n########################\n\n", dp->messageQueue(messageID));
-
 }
 

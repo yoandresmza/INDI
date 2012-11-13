@@ -21,6 +21,11 @@
 #ifndef TUTORIAL_CLIENT_H
 #define TUTORIAL_CLIENT_H
 
+/** \file tutorial_client.h
+    \brief Construct a basic INDI client that demonstrates INDI::Client capabilities. This client must be used with tutorial_three device "Simple CCD".
+    \author Jasem Mutlaq
+*/
+
 #include "indidevapi.h"
 #include "indicom.h"
 #include "indibase/baseclient.h"
@@ -40,7 +45,7 @@ protected:
     virtual void newProperty(INDI::Property *property);
     virtual void removeProperty(INDI::Property *property) {}
     virtual void newBLOB(IBLOB *bp) {}
-    virtual void newSwitch(ISwitchVectorProperty *svp);
+    virtual void newSwitch(ISwitchVectorProperty *svp) {}
     virtual void newNumber(INumberVectorProperty *nvp);
     virtual void newMessage(INDI::BaseDevice *dp, int messageID);
     virtual void newText(ITextVectorProperty *tvp) {}
