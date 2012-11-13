@@ -679,11 +679,12 @@ endif (NOVA_FOUND)
 
 install(TARGETS indi_eval RUNTIME DESTINATION bin )
 
-#################################################################################
+################################################################################
 ## Build Examples. Not installation
 ########### Tutorial one ##############
 set(tutorialone_SRCS
-	${indimain_SRCS}
+# Unnecessary due to the indidriver link; triggers rebuild of indidriver.c
+#	${indimain_SRCS}
         ${CMAKE_SOURCE_DIR}/examples/tutorial_one/simpledevice.cpp
    )
 
@@ -693,7 +694,8 @@ target_link_libraries(tutorial_one indidriver m)
 
 ########### Tutorial two ##############
 set(tutorialtwo_SRCS
-	${indimain_SRCS}
+# Unnecessary due to the indidriver link; triggers rebuild of indidriver.c
+#	${indimain_SRCS}
         ${CMAKE_SOURCE_DIR}/examples/tutorial_two/simplescope.cpp
    )
 
@@ -704,7 +706,8 @@ target_link_libraries(tutorial_two indidriver m)
 ########### Tutorial three ##############
 if (CFITSIO_FOUND)
 set(tutorialthree_SRCS
-	${indimain_SRCS}
+# Unnecessary due to the indidriver link; triggers rebuild of indidriver.c
+#	${indimain_SRCS}
         ${CMAKE_SOURCE_DIR}/examples/tutorial_three/simpleccd.cpp
    )
 
@@ -714,7 +717,7 @@ target_link_libraries(tutorial_three indidriver m)
 endif (CFITSIO_FOUND)
 ########### Tutorial four ##############
 set(tutorialfour_SRCS
-# Unnecessary because of the dependency; triggers rebuild of indidriver.c
+# Unnecessary due to the indidriver link; triggers rebuild of indidriver.c
 #        ${indimain_SRCS}
         ${CMAKE_SOURCE_DIR}/examples/tutorial_four/simpleskeleton.cpp
    )
@@ -725,7 +728,8 @@ target_link_libraries(tutorial_four indidriver m)
 
 ########### Tutorial five - dome driver ##############
 set(tutorialdome_SRCS
-	${indimain_SRCS}
+# Unnecessary due to the indidriver link; triggers rebuild of indidriver.c
+#	${indimain_SRCS}
         ${CMAKE_SOURCE_DIR}/examples/tutorial_five/dome.cpp
    )
 
@@ -735,7 +739,8 @@ target_link_libraries(tutorial_dome indidriver)
 
 ########### Tutorial five - rain driver ##############
 set(tutorialrain_SRCS
-	${indimain_SRCS}
+# Unnecessary due to the indidriver link; triggers rebuild of indidriver.c
+#	${indimain_SRCS}
         ${CMAKE_SOURCE_DIR}/examples/tutorial_five/raindetector.cpp
    )
 

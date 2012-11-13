@@ -51,12 +51,7 @@ CMake can also generate project files for CodeBlocks, Eclipse and Visual Studio:
 http://www.cmake.org/cmake/help/v2.8.9/cmake.html#section_Generators
 
 Useful make targets so far:
- - indiserver (with some limitations: no FIFO; not completely tested)
- - tutorial_one
- - tutorial_two
- - tutorial_three (FITS sending successfully fixed and tested on Windows)
- - tutorial_rain
- - tutorial_dome
+ - none: everything needs to be retested after revision 865
 
 Some of the other targets can be compiled successfully, but do not work or
 have not been tested.

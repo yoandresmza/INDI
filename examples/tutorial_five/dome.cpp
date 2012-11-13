@@ -17,6 +17,10 @@
 
 #include <unistd.h>
 #include <memory>
+#ifdef _WIN32
+#include <windows.h>
+#define sleep(x) Sleep(x * 1000);
+#endif
 
 #include "dome.h"
 
