@@ -81,6 +81,9 @@ static void addSearchDef (char *dev, char *prop, char *ele);
 static void openINDIServer(void);
 static void getprops(void);
 static void listenINDI(void);
+#ifdef _WIN32
+static void listenIndiInternal(void);
+#endif
 static int finished (void);
 static void onAlarm (int dummy);
 static int readServerChar(void);
@@ -112,6 +115,17 @@ static int wflag;			/* show wo properties too */
 int
 main (int ac, char *av[])
 {
+#ifdef _WIN32
+	// Winsock start-up
+	WSADATA wsaData;
+	if (WSAStartup(0x202, &wsaData) != 0)
+	{
+		fprintf(stderr, "WSAStartup failed: %lu\n",
+		        GetLastError());
+		exit(1);
+	}
+#endif
+	
 	/* save our name */
 	me = av[0];
 
@@ -215,6 +229,10 @@ main (int ac, char *av[])
 	/* listen for responses, looking for d.p.e or timeout */
 	listenINDI();
 
+#ifdef _WIN32
+	WSACleanup();
+#endif
+	
 	return (0);
 }
 
@@ -362,15 +380,52 @@ getprops()
 static void
 listenINDI ()
 {
-	char msg[1024];
-
 #ifndef _WIN32
 	/* arrange to call onAlarm() if not seeing any more defXXX */
 	signal (SIGALRM, onAlarm);
 	alarm (timeout);
 #else
-	// TODO: Work around alarm()
+	HANDLE thread = CreateThread(NULL, // Default security attributes
+	                             0, // Default stack size
+	                             listenIndiInternal,
+	                             NULL, // No parameters
+	                             0, // No flags
+	                             NULL); // No thread ID
+	if (thread == NULL)
+	{
+		fprintf (stderr, "listenINDI(): CreateThread() failed: %lu",
+		        GetLastError());
+		onAlarm(0);
+		return; // Not reached?
+	}
+	
+	DWORD res = WaitForSingleObject(thread, (DWORD) timeout * 1000);
+	if (res == WAIT_TIMEOUT)
+	{
+		// Time out, sound the alarm
+		onAlarm(0);
+		return; // Not reached?
+	}
+	else if (res == WAIT_OBJECT_0)
+	{
+		// Thread exited?
+		DWORD exitCode;
+		if (GetExitCodeThread(thread, &exitCode))
+		{
+			fprintf (stderr, "listenINDI(): thread exited with code %lu",
+			        exitCode);
+			return;
+		}
+	}
+	fprintf (stderr, "listenINDI(): Some kind of error: %lu",
+	        GetLastError());
+}
+
+static void
+listenIndiInternal(void)
+{
 #endif
+	char msg[1024];
 
 	/* read from server, exit if find all requested properties */
 	while (1) {
@@ -421,6 +476,10 @@ onAlarm (int dummy)
 					srchs[i].p, srchs[i].e, host, port);
 	    }
 	}
+	
+#ifdef _WIN32
+	WSACleanup();
+#endif
 
 	exit (trouble ? 1 : 0);
 }
