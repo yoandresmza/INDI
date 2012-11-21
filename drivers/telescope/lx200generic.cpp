@@ -106,7 +106,7 @@ static ISwitchVectorProperty AlignmentSw= { mydev, "Alignment", "", COMM_GROUP, 
  Perm: RO
 *********************************************/
 INumber EquatorialCoordsRN[]	 	= { {"RA",  "RA  H:M:S", "%10.6m",  0., 24., 0., 0., 0, 0, 0}, {"DEC", "Dec D:M:S", "%10.6m", -90., 90., 0., 0., 0, 0, 0}};
-INumberVectorProperty EquatorialCoordsRNP= { mydev, "EQUATORIAL_EOD_COORD", "Equatorial JNow", BASIC_GROUP, IP_RO, 120, IPS_IDLE, EquatorialCoordsRN, NARRAY(EquatorialCoordsRN), "", 0};
+INumberVectorProperty EquatorialCoordsRNP= { mydev, "EQUATORIAL_EOD_COORD", "Equatorial JNow", BASIC_GROUP, IP_RW, 120, IPS_IDLE, EquatorialCoordsRN, NARRAY(EquatorialCoordsRN), "", 0};
 
 /********************************************
  Property: On Coord Set
@@ -161,13 +161,13 @@ ISwitchVectorProperty MovementWESP      = { mydev, "TELESCOPE_MOTION_WE", "West/
 /********************************************
  Property: Timed Guide movement. North/South
 *********************************************/
-static INumber GuideNSN[]       = {{"TIMED_GUIDE_N", "North (sec)", "%g", 0, 10, 0.001, 0, 0, 0}, {"TIMED_GUIDE_S", "South (sec)", "%g", 0, 10, 0.001, 0, 0, 0}};
+static INumber GuideNSN[]       = {{"TIMED_GUIDE_N", "North (ms)", "%g", 0, 10, 0.001, 0, 0, 0}, {"TIMED_GUIDE_S", "South (ms)", "%g", 0, 10000, 100, 100, 0, 0}};
 INumberVectorProperty GuideNSNP      = { mydev, "TELESCOPE_TIMED_GUIDE_NS", "Guide North/South", MOTION_GROUP, IP_RW, 0, IPS_IDLE, GuideNSN, NARRAY(GuideNSN), "", 0};
 
 /********************************************
  Property: Timed Guide movement. West/East
 *********************************************/
-static INumber GuideWEN[]       = {{"TIMED_GUIDE_W", "West (sec)", "%g", 0, 10, 0.001, 0, 0, 0}, {"TIMED_GUIDE_E", "East (sec)", "%g", 0, 10, 0.001, 0, 0, 0}};
+static INumber GuideWEN[]       = {{"TIMED_GUIDE_W", "West (ms)", "%g", 0, 10, 0.001, 0, 0, 0}, {"TIMED_GUIDE_E", "East (ms)", "%g", 0, 10000, 100, 100, 0, 0}};
 INumberVectorProperty GuideWENP      = { mydev, "TELESCOPE_TIMED_GUIDE_WE", "Guide West/East", MOTION_GROUP, IP_RW, 0, IPS_IDLE, GuideWEN, NARRAY(GuideWEN), "", 0};
 
 /********************************************
@@ -1068,10 +1068,10 @@ void LX200Generic::ISNewNumber (const char *dev, const char *name, double values
 	  IUUpdateNumber(&GuideWENP, values, names, n);
 
 	  if (GuideWENP.np[0].value > 0) {
-		duration_msec = GuideWENP.np[0].value * 1000;
+        duration_msec = GuideWENP.np[0].value;
 		direction = LX200_WEST;
 	  } else {
-		duration_msec = GuideWENP.np[1].value * 1000;
+        duration_msec = GuideWENP.np[1].value;
 		direction = LX200_EAST;
 	  }
 	  if (duration_msec <= 0) {
@@ -1147,7 +1147,7 @@ void LX200Generic::ISNewSwitch (const char *dev, const char *name, ISState *stat
 	  }
 	  
 	  IUResetSwitch(&AbortSlewSP);
-	  if (abortSlew(fd) < 0)
+      if (!simulation && abortSlew(fd) < 0)
 	  {
 		AbortSlewSP.s = IPS_ALERT;
 		IDSetSwitch(&AbortSlewSP, NULL);
@@ -1726,8 +1726,7 @@ void LX200Generic::guideTimeout(void *p)
 
 void LX200Generic::ISPoll()
 {
-        double dx, dy;
-	/*static int okCounter = 3;*/
+    double dx, dy;
 	int err=0;
 	
 	if (!isTelescopeOn())
@@ -1750,18 +1749,16 @@ void LX200Generic::ISPoll()
 	if (fault)
 	  correctFault();
 
-	EquatorialCoordsRNP.s = IPS_OK;
-
-	if ( fabs(lastRA - currentRA) > (SlewAccuracyN[0].value/(60.0*15.0)) || fabs(lastDEC - currentDEC) > (SlewAccuracyN[1].value/60.0))
-	{
-	  	lastRA  = currentRA;
-		lastDEC = currentDEC;
-		IDSetNumber (&EquatorialCoordsRNP, NULL);
-	}
-
     switch (EquatorialCoordsRNP.s)
 	{
 	case IPS_IDLE:
+    case IPS_OK:
+        if ( fabs(lastRA - currentRA) > (SlewAccuracyN[0].value/(60.0*15.0)) || fabs(lastDEC - currentDEC) > (SlewAccuracyN[1].value/60.0))
+        {
+            lastRA  = currentRA;
+            lastDEC = currentDEC;
+            IDSetNumber (&EquatorialCoordsRNP, NULL);
+        }
         break;
 
 	case IPS_BUSY:
@@ -1778,10 +1775,6 @@ void LX200Generic::ISPoll()
            IDSetNumber(&EquatorialCoordsRNP, "Slew is complete, target locked...");
 		}  
 		break;
-
-	case IPS_OK:
-        break;
-
 
 	case IPS_ALERT:
 	    break;
@@ -1950,7 +1943,7 @@ int LX200Generic::handleCoordSet()
 	     #ifdef INDI_DEBUG
 	     IDLog("Aborting Slew\n");
 	     #endif
-	     if (abortSlew(fd) < 0)
+         if (!simulation && abortSlew(fd) < 0)
 	     {
 		AbortSlewSP.s = IPS_ALERT;
 		IDSetSwitch(&AbortSlewSP, NULL);
@@ -1960,7 +1953,7 @@ int LX200Generic::handleCoordSet()
 
 	     AbortSlewSP.s = IPS_OK;
          EquatorialCoordsRNP.s       = IPS_IDLE;
-             IDSetSwitch(&AbortSlewSP, "Slew aborted.");
+         IDSetSwitch(&AbortSlewSP, "Slew aborted.");
          IDSetNumber(&EquatorialCoordsRNP, NULL);
 
 	     if (MovementNSSP.s == IPS_BUSY || MovementWESP.s == IPS_BUSY)
@@ -1979,7 +1972,7 @@ int LX200Generic::handleCoordSet()
 	usleep(100000);
 	}
 
-	if ((err = Slew(fd))) /* Slew reads the '0', that is not the end of the slew */
+    if (!simulation && (err = Slew(fd))) /* Slew reads the '0', that is not the end of the slew */
 	{
 	    IDMessage(mydev "ERROR Slewing to JNow RA %s - DEC %s\n", RAStr, DecStr);
 	    slewError(err);
@@ -2007,6 +2000,8 @@ int LX200Generic::handleCoordSet()
 		return (-1);
 	  }
 
+    EquatorialCoordsRN[0].value = targetRA;
+    EquatorialCoordsRN[1].value = targetDEC;
       EquatorialCoordsRNP.s = IPS_OK;
 	  IDLog("Synchronization successful %s\n", syncString);
       IDSetNumber(&EquatorialCoordsRNP, "Synchronization successful.");
