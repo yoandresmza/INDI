@@ -44,8 +44,9 @@ drivers/telescope/celestronprotocol.c -text
 drivers/telescope/celestronprotocol.h -text
 drivers/telescope/ieq45.cpp -text
 drivers/telescope/ieq45.h -text
-drivers/telescope/ieq45driver.c -text
 drivers/telescope/ieq45driver.h -text
+drivers/telescope/ieq45driver8406.c -text
+drivers/telescope/ieq45driver8407.c -text
 drivers/telescope/intelliscope.c -text
 drivers/telescope/lx200_16.cpp -text
 drivers/telescope/lx200_16.h -text
