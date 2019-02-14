@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 2.7)
 PROJECT(indi_sbig CXX C)
 
 set (SBIG_VERSION_MAJOR 2)
-set (SBIG_VERSION_MINOR 0)
+set (SBIG_VERSION_MINOR 1)
 
 LIST(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake_modules/")
 LIST(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../cmake_modules/")
@@ -26,12 +26,27 @@ include_directories( ${CFITSIO_INCLUDE_DIR})
 
 include(CMakeCommon)
 
+if (APPLE)
+    set(SBIGLIB ${CMAKE_CURRENT_SOURCE_DIR}/mac/libsbigudrv.bin)
+    message("-- Using Mac static SBIG Library")
+elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "armv+")
+    set(SBIGLIB ${CMAKE_CURRENT_SOURCE_DIR}/arm/libsbigudrv.bin)
+    message("-- Using armhf static SBIG Library")
+elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
+    set(SBIGLIB ${CMAKE_CURRENT_SOURCE_DIR}/arm64/libsbigudrv.bin)
+    message("-- Using arm64 static SBIG Library")
+elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
+    set(SBIGLIB ${CMAKE_CURRENT_SOURCE_DIR}/x64/libsbigudrv.bin)
+    message("-- Using x86-64 static SBIG Library")
+elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "i[3-6]86")
+    set(SBIGLIB ${CMAKE_CURRENT_SOURCE_DIR}/x86/libsbigudrv.bin)
+    message("-- Using x86-32 static SBIG Library")
+endif ()
+
 ############# SBIG CCD ###############
 if (CFITSIO_FOUND)
 
-set(sbigccd_SRCS
-        ${CMAKE_CURRENT_SOURCE_DIR}/sbig_ccd.cpp
-)
+set(sbigccd_SRCS  ${CMAKE_CURRENT_SOURCE_DIR}/sbig_ccd.cpp)
 
 if (APPLE)
     set(sbigccd_SRCS
@@ -41,7 +56,8 @@ endif()
 
 add_executable(indi_sbig_ccd ${sbigccd_SRCS})
 
-target_link_libraries(indi_sbig_ccd ${INDI_LIBRARIES} ${CFITSIO_LIBRARIES} ${SBIG_LIBRARIES} ${M_LIB} ${ZLIB_LIBRARY} ${CMAKE_THREAD_LIBS_INIT} ${USB1_LIBRARIES})
+#target_link_libraries(indi_sbig_ccd ${INDI_LIBRARIES} ${CFITSIO_LIBRARIES} ${SBIG_LIBRARIES} ${M_LIB} ${ZLIB_LIBRARY} ${CMAKE_THREAD_LIBS_INIT} ${USB1_LIBRARIES})
+target_link_libraries(indi_sbig_ccd ${INDI_LIBRARIES} ${CFITSIO_LIBRARIES} ${SBIGLIB} ${M_LIB} ${ZLIB_LIBRARY} ${CMAKE_THREAD_LIBS_INIT} ${USB1_LIBRARIES})
 
 install(TARGETS indi_sbig_ccd RUNTIME DESTINATION bin)
 

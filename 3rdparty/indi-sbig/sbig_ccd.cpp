@@ -164,8 +164,8 @@ void ISSnoopDevice(XMLEle *root)
 
 void SBIGCCD::loadFirmwareOnOSXifNeeded()
 {
-// Upload firmware in case of MacOS
-    #ifdef __APPLE__
+    // Upload firmware in case of MacOS
+#ifdef __APPLE__
 
     //SBIG Universal Driver Check
     const std::string name = "/System/Library/Extensions/SBIGUSBEDriver.kext";
@@ -196,7 +196,7 @@ void SBIGCCD::loadFirmwareOnOSXifNeeded()
 
     cnt = libusb_get_device_list(nullptr, &list);
     if(cnt < 0)
-         LOGF_WARN("Failed to get device list", __FUNCTION__, libusb_error_name(rc));
+        LOGF_WARN("Failed to get device list", __FUNCTION__, libusb_error_name(rc));
     handle = nullptr;
     for (i = 0; i < cnt; ++i)
     {
@@ -214,7 +214,7 @@ void SBIGCCD::loadFirmwareOnOSXifNeeded()
             if ((desc.idVendor == 0x0d97) && (desc.idProduct == 0x0003))
                 sbigCameraTypeFound = 4;
 
-            if(sbigCameraTypeFound !=0)
+            if(sbigCameraTypeFound != 0)
             {
                 libusb_open(list[i], &handle);
                 if (handle)
@@ -227,7 +227,7 @@ void SBIGCCD::loadFirmwareOnOSXifNeeded()
                         snprintf(driverSupportPath, MAXRBUF, "%s/Contents/Resources", getenv("INDIPREFIX"));
                     else
                         strncpy(driverSupportPath, "/usr/local/lib/indi", MAXRBUF);
-                    int status=0;
+                    int status = 0;
                     if(sbigCameraTypeFound == 1) // SBIG ST-7/8/9/10/2K cameras
                     {
                         strncat(driverSupportPath, "/DriverSupport/sbig/sbigucam.hex", MAXRBUF);
@@ -251,10 +251,10 @@ void SBIGCCD::loadFirmwareOnOSXifNeeded()
                 }
             }
         }
-     }
+    }
     libusb_free_device_list(list, 0);
-    list=nullptr;
-    #endif
+    list = nullptr;
+#endif
 }
 
 int SBIGCCD::OpenDriver()
@@ -263,11 +263,11 @@ int SBIGCCD::OpenDriver()
 
     GetDriverHandleResults gdhr;
     SetDriverHandleParams sdhp;
-    int res = ::SBIGUnivDrvCommand(CC_OPEN_DRIVER, 0, 0);
+    int res = ::SBIGUnivDrvCommand(CC_OPEN_DRIVER, nullptr, nullptr);
     if (res == CE_NO_ERROR)
     {
         LOGF_DEBUG("%s: CC_OPEN_DRIVER successfull", __FUNCTION__);
-        res = ::SBIGUnivDrvCommand(CC_GET_DRIVER_HANDLE, 0, &gdhr);
+        res = ::SBIGUnivDrvCommand(CC_GET_DRIVER_HANDLE, nullptr, &gdhr);
     }
     else if (res == CE_DRIVER_NOT_CLOSED)
     {
@@ -276,13 +276,13 @@ int SBIGCCD::OpenDriver()
         // opened by another instance of the class so get the driver to
         // allocate a new handle and then record it.
         sdhp.handle = INVALID_HANDLE_VALUE;
-        res         = ::SBIGUnivDrvCommand(CC_SET_DRIVER_HANDLE, &sdhp, 0);
+        res         = ::SBIGUnivDrvCommand(CC_SET_DRIVER_HANDLE, &sdhp, nullptr);
         if (res == CE_NO_ERROR)
         {
-            res = ::SBIGUnivDrvCommand(CC_OPEN_DRIVER, 0, 0);
+            res = ::SBIGUnivDrvCommand(CC_OPEN_DRIVER, nullptr, nullptr);
             if (res == CE_NO_ERROR)
             {
-                res = ::SBIGUnivDrvCommand(CC_GET_DRIVER_HANDLE, 0, &gdhr);
+                res = ::SBIGUnivDrvCommand(CC_GET_DRIVER_HANDLE, nullptr, &gdhr);
             }
         }
     }
@@ -301,7 +301,7 @@ int SBIGCCD::OpenDriver()
 
 int SBIGCCD::CloseDriver()
 {
-    int res = ::SBIGUnivDrvCommand(CC_CLOSE_DRIVER, 0, 0);
+    int res = ::SBIGUnivDrvCommand(CC_CLOSE_DRIVER, nullptr, nullptr);
     if (res == CE_NO_ERROR)
     {
         LOGF_DEBUG("%s: CC_CLOSE_DRIVER successfull", __FUNCTION__);
@@ -334,7 +334,7 @@ int SBIGCCD::OpenDevice(uint32_t devType)
             return (CE_BAD_PARAMETER);
         odp.ipAddress = ip;
     }
-    res = SBIGUnivDrvCommand(CC_OPEN_DEVICE, &odp, 0);
+    res = SBIGUnivDrvCommand(CC_OPEN_DEVICE, &odp, nullptr);
     if (res == CE_NO_ERROR)
     {
         //SetDeviceName(devType);
@@ -358,7 +358,7 @@ int SBIGCCD::CloseDevice()
     }
     if (IsDeviceOpen())
     {
-        if ((res = SBIGUnivDrvCommand(CC_CLOSE_DEVICE, 0, 0)) == CE_NO_ERROR)
+        if ((res = SBIGUnivDrvCommand(CC_CLOSE_DEVICE, nullptr, nullptr)) == CE_NO_ERROR)
         {
             SetFileDescriptor(); // set value to -1
             SetCameraType();     // set value to NO_CAMERA
@@ -609,7 +609,7 @@ bool SBIGCCD::updateProperties()
             if (p != nullptr && FilterConnectionS[0].s == ISS_OFF)
             {
                 LOG_DEBUG("Filter type is already selected and filter is not connected. Will "
-                                               "attempt to connect to filter now...");
+                          "attempt to connect to filter now...");
                 CFWConnect();
             }
         }
@@ -1029,9 +1029,9 @@ int SBIGCCD::StartExposure(INDI::CCDChip *targetChip, double duration)
     sep.height       = height;
 
     LOGF_DEBUG(
-           "Exposure params for CCD (%d) openShutter(%d), exposureTime (%ld), binning (%d), left (%d), top (%d), w(%d), "
-           "h(%d)",
-           sep.ccd, sep.openShutter, sep.exposureTime, sep.readoutMode, sep.left, sep.top, sep.width, sep.height);
+        "Exposure params for CCD (%d) openShutter(%d), exposureTime (%ld), binning (%d), left (%d), top (%d), w(%d), "
+        "h(%d)",
+        sep.ccd, sep.openShutter, sep.exposureTime, sep.readoutMode, sep.left, sep.top, sep.width, sep.height);
 
     for (int i = 0; i < MAX_THREAD_RETRIES; i++)
     {
@@ -1112,7 +1112,7 @@ int SBIGCCD::AbortExposure(INDI::CCDChip *targetChip)
         ccd = useExternalTrackingCCD ? CCD_EXT_TRACKING : CCD_TRACKING;
     }
     EndExposureParams eep;
-    eep.ccd = (unsigned short)ccd;
+    eep.ccd = static_cast<uint16_t>(ccd);
     pthread_mutex_lock(&sbigMutex);
     int res = EndExposure(&eep);
     pthread_mutex_unlock(&sbigMutex);
@@ -1365,7 +1365,7 @@ bool SBIGCCD::grabImage(INDI::CCDChip *targetChip)
     unsigned short width  = (unsigned short)targetChip->getSubW() / targetChip->getBinX();
     unsigned short height = (unsigned short)targetChip->getSubH() / targetChip->getBinY();
     LOGF_DEBUG("%s readout in progress...",
-           targetChip == &PrimaryCCD ? "Primary camera" : "Guide head");
+               targetChip == &PrimaryCCD ? "Primary camera" : "Guide head");
     if (isSimulation())
     {
         uint8_t *image = targetChip->getFrameBuffer();
@@ -1392,7 +1392,7 @@ bool SBIGCCD::grabImage(INDI::CCDChip *targetChip)
         if (res != CE_NO_ERROR)
         {
             LOGF_ERROR("%s readout error",
-                   targetChip == &PrimaryCCD ? "Primary camera" : "Guide head");
+                       targetChip == &PrimaryCCD ? "Primary camera" : "Guide head");
             return false;
         }
     }
@@ -1486,7 +1486,7 @@ int SBIGCCD::GetDriverInfo(GetDriverInfoParams *gdip, void *res)
 
 int SBIGCCD::SetDriverHandle(SetDriverHandleParams *sdhp)
 {
-    int res = SBIGUnivDrvCommand(CC_SET_DRIVER_HANDLE, sdhp, 0);
+    int res = SBIGUnivDrvCommand(CC_SET_DRIVER_HANDLE, sdhp, nullptr);
     if (res != CE_NO_ERROR)
     {
         LOGF_ERROR("%s: CC_SET_DRIVER_HANDLE -> (%s)", __FUNCTION__, GetErrorString(res));
@@ -1496,7 +1496,7 @@ int SBIGCCD::SetDriverHandle(SetDriverHandleParams *sdhp)
 
 int SBIGCCD::GetDriverHandle(GetDriverHandleResults *gdhr)
 {
-    int res = SBIGUnivDrvCommand(CC_GET_DRIVER_HANDLE, 0, gdhr);
+    int res = SBIGUnivDrvCommand(CC_GET_DRIVER_HANDLE, nullptr, gdhr);
     if (res != CE_NO_ERROR)
     {
         LOGF_ERROR("%s: CC_GET_DRIVER_HANDLE -> (%s)", __FUNCTION__, GetErrorString(res));
@@ -1528,7 +1528,7 @@ int SBIGCCD::EndExposure(EndExposureParams *eep)
     {
         return CE_NO_ERROR;
     }
-    int res = SBIGUnivDrvCommand(CC_END_EXPOSURE, eep, 0);
+    int res = SBIGUnivDrvCommand(CC_END_EXPOSURE, eep, nullptr);
     if (res != CE_NO_ERROR)
     {
         LOGF_ERROR("%s: CC_END_EXPOSURE -> (%s)", __FUNCTION__, GetErrorString(res));
@@ -1538,7 +1538,7 @@ int SBIGCCD::EndExposure(EndExposureParams *eep)
 
 int SBIGCCD::StartReadout(StartReadoutParams *srp)
 {
-    int res = SBIGUnivDrvCommand(CC_START_READOUT, srp, 0);
+    int res = SBIGUnivDrvCommand(CC_START_READOUT, srp, nullptr);
     if (res != CE_NO_ERROR)
     {
         LOGF_ERROR("%s: CC_START_READOUT -> (%s)", __FUNCTION__, GetErrorString(res));
@@ -1560,14 +1560,14 @@ int SBIGCCD::ReadoutLine(ReadoutLineParams *rlp, unsigned short *results, bool b
     if (res != CE_NO_ERROR)
     {
         LOGF_ERROR("%s: CC_READ_SUBTRACT_LINE/CC_READOUT_LINE -> (%s)", __FUNCTION__,
-               GetErrorString(res));
+                   GetErrorString(res));
     }
     return res;
 }
 
 int SBIGCCD::DumpLines(DumpLinesParams *dlp)
 {
-    int res = SBIGUnivDrvCommand(CC_DUMP_LINES, dlp, 0);
+    int res = SBIGUnivDrvCommand(CC_DUMP_LINES, dlp, nullptr);
     if (res != CE_NO_ERROR)
     {
         LOGF_ERROR("%s: CC_DUMP_LINES -> (%s)", __FUNCTION__, GetErrorString(res));
@@ -1577,7 +1577,7 @@ int SBIGCCD::DumpLines(DumpLinesParams *dlp)
 
 int SBIGCCD::EndReadout(EndReadoutParams *erp)
 {
-    int res = SBIGUnivDrvCommand(CC_END_READOUT, erp, 0);
+    int res = SBIGUnivDrvCommand(CC_END_READOUT, erp, nullptr);
     if (res != CE_NO_ERROR)
     {
         LOGF_ERROR("%s: CC_END_READOUT -> (%s)", __FUNCTION__, GetErrorString(res));
@@ -1587,7 +1587,7 @@ int SBIGCCD::EndReadout(EndReadoutParams *erp)
 
 int SBIGCCD::SetTemperatureRegulation(SetTemperatureRegulationParams *strp)
 {
-    int res = SBIGUnivDrvCommand(CC_SET_TEMPERATURE_REGULATION, strp, 0);
+    int res = SBIGUnivDrvCommand(CC_SET_TEMPERATURE_REGULATION, strp, nullptr);
     if (res != CE_NO_ERROR)
     {
         LOGF_ERROR("%s: CC_SET_TEMPERATURE_REGULATION -> (%s)", __FUNCTION__, GetErrorString(res));
@@ -1608,7 +1608,7 @@ int SBIGCCD::SetTemperatureRegulation(double temperature, bool enable)
     {
         strp.regulation  = enable ? REGULATION_ON : REGULATION_OFF;
         strp.ccdSetpoint = CalcSetpoint(temperature);
-        res              = SBIGUnivDrvCommand(CC_SET_TEMPERATURE_REGULATION, &strp, 0);
+        res              = SBIGUnivDrvCommand(CC_SET_TEMPERATURE_REGULATION, &strp, nullptr);
     }
     else
     {
@@ -1635,7 +1635,7 @@ int SBIGCCD::QueryTemperatureStatus(bool &enabled, double &ccdTemp, double &setp
     }
     if (CheckLink())
     {
-        res = SBIGUnivDrvCommand(CC_QUERY_TEMPERATURE_STATUS, 0, &qtsr);
+        res = SBIGUnivDrvCommand(CC_QUERY_TEMPERATURE_STATUS, nullptr, &qtsr);
         if (res == CE_NO_ERROR)
         {
             enabled      = (qtsr.enabled != 0);
@@ -1643,7 +1643,7 @@ int SBIGCCD::QueryTemperatureStatus(bool &enabled, double &ccdTemp, double &setp
             setpointTemp = CalcTemperature(CCD_THERMISTOR, qtsr.ccdSetpoint);
             power        = qtsr.power / 255.0;
             LOGF_DEBUG("%s: Regulation Enabled (%s) ccdTemp (%g) setpointTemp (%g) power (%g)",
-                   __FUNCTION__, enabled ? "True" : "False", ccdTemp, setpointTemp, power);
+                       __FUNCTION__, enabled ? "True" : "False", ccdTemp, setpointTemp, power);
         }
     }
     else
@@ -1690,7 +1690,7 @@ double SBIGCCD::CalcTemperature(short thermistorType, short setpoint)
 
 int SBIGCCD::ActivateRelay(ActivateRelayParams *arp)
 {
-    int res = SBIGUnivDrvCommand(CC_ACTIVATE_RELAY, arp, 0);
+    int res = SBIGUnivDrvCommand(CC_ACTIVATE_RELAY, arp, nullptr);
     if (res != CE_NO_ERROR)
     {
         LOGF_ERROR("%s: CC_ACTIVATE_RELAY -> (%s)", __FUNCTION__, GetErrorString(res));
@@ -1700,7 +1700,7 @@ int SBIGCCD::ActivateRelay(ActivateRelayParams *arp)
 
 int SBIGCCD::PulseOut(PulseOutParams *pop)
 {
-    int res = SBIGUnivDrvCommand(CC_PULSE_OUT, pop, 0);
+    int res = SBIGUnivDrvCommand(CC_PULSE_OUT, pop, nullptr);
     if (res != CE_NO_ERROR)
     {
         LOGF_ERROR("%s: CC_PULSE_OUT -> (%s)", __FUNCTION__, GetErrorString(res));
@@ -1720,7 +1720,7 @@ int SBIGCCD::TxSerialBytes(TXSerialBytesParams *txsbp, TXSerialBytesResults *txs
 
 int SBIGCCD::GetSerialStatus(GetSerialStatusResults *gssr)
 {
-    int res = SBIGUnivDrvCommand(CC_GET_SERIAL_STATUS, 0, gssr);
+    int res = SBIGUnivDrvCommand(CC_GET_SERIAL_STATUS, nullptr, gssr);
     if (res != CE_NO_ERROR)
     {
         LOGF_ERROR("%s: CC_GET_SERIAL_STATUS -> (%s)", __FUNCTION__, GetErrorString(res));
@@ -1730,7 +1730,7 @@ int SBIGCCD::GetSerialStatus(GetSerialStatusResults *gssr)
 
 int SBIGCCD::AoTipTilt(AOTipTiltParams *aottp)
 {
-    int res = SBIGUnivDrvCommand(CC_AO_TIP_TILT, aottp, 0);
+    int res = SBIGUnivDrvCommand(CC_AO_TIP_TILT, aottp, nullptr);
     if (res != CE_NO_ERROR)
     {
         LOGF_ERROR("%s: CC_AO_TIP_TILT -> (%s)", __FUNCTION__, GetErrorString(res));
@@ -1740,7 +1740,7 @@ int SBIGCCD::AoTipTilt(AOTipTiltParams *aottp)
 
 int SBIGCCD::AoDelay(AODelayParams *aodp)
 {
-    int res = SBIGUnivDrvCommand(CC_AO_DELAY, aodp, 0);
+    int res = SBIGUnivDrvCommand(CC_AO_DELAY, aodp, nullptr);
     if (res != CE_NO_ERROR)
     {
         LOGF_ERROR("%s: CC_AO_DELAY -> (%s)", __FUNCTION__, GetErrorString(res));
@@ -1777,10 +1777,11 @@ int SBIGCCD::EstablishLink()
     return res;
 }
 
-int SBIGCCD::GetCcdInfo(GetCCDInfoParams *gcp, void *gcr)
+int SBIGCCD::GetCcdInfo(GetCCDInfoParams *gcp, void *gcr, bool primary)
 {
     int res = SBIGUnivDrvCommand(CC_GET_CCD_INFO, gcp, gcr);
-    if (res != CE_NO_ERROR)
+    // If primary chip, then report the error if detected. Otherwise ignore.
+    if (primary && res != CE_NO_ERROR)
     {
         LOGF_ERROR("%s: CC_GET_CCD_INFO -> (%s)", __FUNCTION__, GetErrorString(res));
     }
@@ -1819,8 +1820,8 @@ int SBIGCCD::getCCDSizeInfo(int ccd, int binning, int &frmW, int &frmH, double &
         pixW = BcdPixel2double(gcr.readoutInfo[binning].pixelWidth);
         pixH = BcdPixel2double(gcr.readoutInfo[binning].pixelHeight);
         LOGF_DEBUG(
-               "%s: CC_GET_CCD_INFO -> binning (%d) width (%d) height (%d) pixW (%g) pixH (%g)", __FUNCTION__, binning,
-               frmW, frmH, pixW, pixH);
+            "%s: CC_GET_CCD_INFO -> binning (%d) width (%d) height (%d) pixW (%g) pixH (%g)", __FUNCTION__, binning,
+            frmW, frmH, pixW, pixH);
     }
     else
     {
@@ -1841,7 +1842,7 @@ int SBIGCCD::QueryCommandStatus(QueryCommandStatusParams *qcsp, QueryCommandStat
 
 int SBIGCCD::MiscellaneousControl(MiscellaneousControlParams *mcp)
 {
-    int res = SBIGUnivDrvCommand(CC_MISCELLANEOUS_CONTROL, mcp, 0);
+    int res = SBIGUnivDrvCommand(CC_MISCELLANEOUS_CONTROL, mcp, nullptr);
     if (res != CE_NO_ERROR)
     {
         LOGF_ERROR("%s: CC_QUERY_COMMAND_STATUS -> (%s)", __FUNCTION__, GetErrorString(res));
@@ -1861,7 +1862,7 @@ int SBIGCCD::ReadOffset(ReadOffsetParams *rop, ReadOffsetResults *ror)
 
 int SBIGCCD::GetLinkStatus(GetLinkStatusResults *glsr)
 {
-    int res = SBIGUnivDrvCommand(CC_GET_LINK_STATUS, glsr, 0);
+    int res = SBIGUnivDrvCommand(CC_GET_LINK_STATUS, glsr, nullptr);
     if (res != CE_NO_ERROR)
     {
         LOGF_ERROR("%s: CC_GET_LINK_STATUS -> (%s)", __FUNCTION__, GetErrorString(res));
@@ -1886,7 +1887,7 @@ char *SBIGCCD::GetErrorString(int err)
 
 int SBIGCCD::SetDriverControl(SetDriverControlParams *sdcp)
 {
-    int res = SBIGUnivDrvCommand(CC_SET_DRIVER_CONTROL, sdcp, 0);
+    int res = SBIGUnivDrvCommand(CC_SET_DRIVER_CONTROL, sdcp, nullptr);
     if (res != CE_NO_ERROR)
     {
         LOGF_ERROR("%s: CC_SET_DRIVER_CONTROL -> (%s)", __FUNCTION__, GetErrorString(res));
@@ -1906,7 +1907,7 @@ int SBIGCCD::GetDriverControl(GetDriverControlParams *gdcp, GetDriverControlResu
 
 int SBIGCCD::UsbAdControl(USBADControlParams *usbadcp)
 {
-    int res = SBIGUnivDrvCommand(CC_USB_AD_CONTROL, usbadcp, 0);
+    int res = SBIGUnivDrvCommand(CC_USB_AD_CONTROL, usbadcp, nullptr);
     if (res != CE_NO_ERROR)
     {
         LOGF_ERROR("%s: CC_USB_AD_CONTROL -> (%s)", __FUNCTION__, GetErrorString(res));
@@ -1916,7 +1917,7 @@ int SBIGCCD::UsbAdControl(USBADControlParams *usbadcp)
 
 int SBIGCCD::QueryUsb(QueryUSBResults *qusbr)
 {
-    int res = SBIGUnivDrvCommand(CC_QUERY_USB, 0, qusbr);
+    int res = SBIGUnivDrvCommand(CC_QUERY_USB, nullptr, qusbr);
     if (res != CE_NO_ERROR)
     {
         LOGF_ERROR("%s: CC_QUERY_USB -> (%s)", __FUNCTION__, GetErrorString(res));
@@ -1926,7 +1927,7 @@ int SBIGCCD::QueryUsb(QueryUSBResults *qusbr)
 
 int SBIGCCD::RwUsbI2c(RWUSBI2CParams *rwusbi2cp)
 {
-    int res = SBIGUnivDrvCommand(CC_RW_USB_I2C, rwusbi2cp, 0);
+    int res = SBIGUnivDrvCommand(CC_RW_USB_I2C, rwusbi2cp, nullptr);
     if (res != CE_NO_ERROR)
     {
         LOGF_ERROR("%s: CC_RW_USB_I2C -> (%s)", __FUNCTION__, GetErrorString(res));
@@ -2002,14 +2003,14 @@ void SBIGCCD::GetExtendedCCDInfo()
     if (GetCcdInfo(&gccdip, (void *)&imaging_ccd_results4) == CE_NO_ERROR)
     {
         LOGF_DEBUG("CCD_IMAGING Extended CCD Info 4. CapabilitiesBit: (%u) Dump Extra (%u)",
-               imaging_ccd_results4.capabilitiesBits, imaging_ccd_results4.dumpExtra);
+                   imaging_ccd_results4.capabilitiesBits, imaging_ccd_results4.dumpExtra);
     }
     gccdip.request = 5;
-    if (GetCcdInfo(&gccdip, (void *)&tracking_ccd_results4) == CE_NO_ERROR)
+    if (GetCcdInfo(&gccdip, (void *)&tracking_ccd_results4, false) == CE_NO_ERROR)
     {
         hasGuideHead = true;
         LOGF_DEBUG("TRACKING_CCD Extended CCD Info 4. CapabilitiesBit: (%u) Dump Extra (%u)",
-               tracking_ccd_results4.capabilitiesBits, tracking_ccd_results4.dumpExtra);
+                   tracking_ccd_results4.capabilitiesBits, tracking_ccd_results4.dumpExtra);
         if (tracking_ccd_results4.capabilitiesBits & CB_CCD_EXT_TRACKER_YES)
         {
             LOG_DEBUG("External tracking CCD detected.");
@@ -2024,19 +2025,19 @@ void SBIGCCD::GetExtendedCCDInfo()
     {
         hasGuideHead = false;
         LOGF_DEBUG("TRACKING_CCD Error getting extended CCD Info 4 (%s). No guide head detected.",
-               GetErrorString(res));
+                   GetErrorString(res));
     }
     gccdip.request = 6;
     if (GetCcdInfo(&gccdip, (void *)&results6) == CE_NO_ERROR)
     {
         LOGF_DEBUG("Extended CCD Info 6. Camerabit: (%ld) CCD bits (%ld) Extra bit (%ld)",
-               results6.cameraBits, results6.ccdBits, results6.extraBits);
+                   results6.cameraBits, results6.ccdBits, results6.extraBits);
         if (results6.ccdBits & 0x0001)
         {
             LOG_DEBUG("Color CCD detected.");
             isColor = true;
             LOGF_DEBUG("Detected color matrix is %s.",
-                   (results6.ccdBits & 0x0002) ? "Truesense" : "Bayer");
+                       (results6.ccdBits & 0x0002) ? "Truesense" : "Bayer");
         }
         else
         {
@@ -2101,17 +2102,8 @@ int SBIGCCD::SBIGUnivDrvCommand(PAR_COMMAND command, void *params, void *results
     {
         // Handle is valid so install it in the driver.
         sdhp.handle = GetDriverHandle();
-        res         = ::SBIGUnivDrvCommand(CC_SET_DRIVER_HANDLE, &sdhp, 0);
-#ifndef __APPLE__
-        if (res == CE_FAKE_DRIVER)
-        {
-            // The user is using the dummy driver. Tell him to download the real driver
-            IDMessage(getDeviceName(), "Error: SBIG Dummy Driver is being used now. You can only control your camera "
-                                       "by downloading SBIG driver from INDI website @ indi.sf.net");
-        }
-        else
-#endif
-            if (res == CE_NO_ERROR)
+        res         = ::SBIGUnivDrvCommand(CC_SET_DRIVER_HANDLE, &sdhp, nullptr);
+        if (res == CE_NO_ERROR)
         {
             res = ::SBIGUnivDrvCommand(command, params, results);
         }
@@ -2299,7 +2291,6 @@ bool SBIGCCD::SelectFilter(int position)
         LOG_INFO("Failed to reach position");
         return false;
     }
-    return false;
 }
 
 int SBIGCCD::QueryFilter()
@@ -2351,7 +2342,7 @@ void SBIGCCD::updateTemperature()
         }
         CoolerN[0].value = power;
         IDSetNumber(&TemperatureNP, nullptr);
-        IDSetNumber(&CoolerNP, 0);
+        IDSetNumber(&CoolerNP, nullptr);
     }
     else
     {
@@ -2464,7 +2455,7 @@ int SBIGCCD::readoutCCD(unsigned short left, unsigned short top, unsigned short 
     if (res != CE_NO_ERROR)
     {
         LOGF_ERROR("%s readoutCCD - StartReadout error! (%s)",
-               (targetChip == &PrimaryCCD) ? "Primary" : "Guide", GetErrorString(res));
+                   (targetChip == &PrimaryCCD) ? "Primary" : "Guide", GetErrorString(res));
         pthread_mutex_unlock(&sbigMutex);
         return res;
     }
@@ -2482,7 +2473,7 @@ int SBIGCCD::readoutCCD(unsigned short left, unsigned short top, unsigned short 
     if ((res = EndReadout(&erp)) != CE_NO_ERROR)
     {
         LOGF_ERROR("%s readoutCCD - EndReadout error! (%s)",
-               (targetChip == &PrimaryCCD) ? "Primary" : "Guide", GetErrorString(res));
+                   (targetChip == &PrimaryCCD) ? "Primary" : "Guide", GetErrorString(res));
         pthread_mutex_unlock(&sbigMutex);
         return res;
     }
@@ -2602,7 +2593,7 @@ int SBIGCCD::CFWConnect()
             FilterSlotN[0].value = FilterSlotN[0].max;
         }
         LOGF_DEBUG("CFW min: 1 Max: %g Current Slot: %g", FilterSlotN[0].max,
-               FilterSlotN[0].value);
+                   FilterSlotN[0].value);
 
         defineNumber(&FilterSlotNP);
         if (FilterNameT == nullptr)
@@ -2730,7 +2721,8 @@ int SBIGCCD::CFWGotoMonitor(CFWResults *CFWr)
                 break;
         }
         sleep(1);
-    } while (CFWr->cfwStatus != CFWS_IDLE);
+    }
+    while (CFWr->cfwStatus != CFWS_IDLE);
     return res;
 }
 
