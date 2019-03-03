@@ -630,6 +630,17 @@ install(TARGETS indi_celestron_gps RUNTIME DESTINATION bin)
 
 #################################################################################
 
+########### SiTech ############
+SET(sitech_SRC
+    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/telescope/sitech.cpp)
+
+add_executable(indi_sitech_telescope ${sitech_SRC})
+
+target_link_libraries(indi_sitech_telescope indidriver)
+
+install(TARGETS indi_sitech_telescope RUNTIME DESTINATION bin)
+
+#################################################################################
 
 ########### Takahashi Temma ##########
 SET(temma_SRC
