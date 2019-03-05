@@ -43,6 +43,7 @@ public:
 
     virtual bool Handshake() override;
     virtual bool ReadScopeStatus() override;
+    virtual bool saveConfigItems(FILE *fp) override;
 
     ///////////////////////////////////////////////////////////////////////////////
     /// Motion Commands
@@ -54,10 +55,10 @@ public:
     ///////////////////////////////////////////////////////////////////////////////
     /// GOTO Commands
     ///////////////////////////////////////////////////////////////////////////////
-    virtual bool Goto(double,double) override;
+    virtual bool Goto(double ra, double de) override;
     virtual bool Park() override;
     virtual bool UnPark() override;
-    virtual bool Sync(double ra, double dec) override;
+    virtual bool Sync(double ra, double de) override;
 
     ///////////////////////////////////////////////////////////////////////////////
     /// Guiding Commands
@@ -77,6 +78,7 @@ public:
     bool sendCommand(const char * cmd, char * res = nullptr, int cmd_len = -1, int res_len = -1);
     bool getStartupValues();
     void hexDump(char * buf, const char * data, int size);
+    std::vector<std::string> split(const std::string &input, const std::string &regex);
 
     typedef enum
     {
@@ -98,13 +100,52 @@ public:
         ST_TRACKING_OFFSET      = 1 << 15,  ///< Bit 15 (AND with 32768) Tracking at Offset Rate of some kind (non-sidereal)
     } StatusBits;
 
+    typedef enum
+    {
+        MOUNT_RA,               ///< Right Ascension (Hours)
+        MOUNT_DE,               ///< Declination (Degrees)
+        MOUNT_AT,               ///< Altitude (Degrees)
+        MOUNT_AZ,               ///< Azimuth (Degrees)
+        MOUNT_AXIS_PRIMARY,     ///< Primary Axis Position (Degrees)
+        MOUNT_AXIS_SECONDARY,   ///< Secondary Axis Position (Degrees)
+        MOUNT_LST,              ///< Local Sidereal Time (Hours)
+        MOUNT_JD,               ///< Julian Day
+        MOUNT_LT,               ///< Local Time (Hours)
+        MOUNT_N,
+    } MountData;
+
     std::map<StatusBits, bool> m_Status;
+    std::vector<double> m_Data;
+    std::string m_Message;
+    std::vector<std::string> m_LastMountResponse;
 
     /////////////////////////////////////////////////////////////////////////////
     /// Properties
     /////////////////////////////////////////////////////////////////////////////
-    INumber GuideRateN[2];
+    // Guide Rate
     INumberVectorProperty GuideRateNP;
+    INumber GuideRateN[2];
+
+
+    // Syncing Options
+    ISwitchVectorProperty SyncOptionSP;
+    ISwitch SyncOptionS[3];
+    enum
+    {
+        SYNC_INIT,
+        SYNC_OFFSET,
+        SYNC_LOAD_CALIBRATION,
+    };
+
+    // Park Goto Options
+    ISwitchVectorProperty ParkGotoSP;
+    ISwitch ParkGotoS[3];
+    enum
+    {
+        PARK_1,
+        PARK_2,
+        PARK_3,
+    };
 
     /////////////////////////////////////////////////////////////////////////////
     /// Static Helper Values
@@ -113,7 +154,9 @@ public:
     static const char DRIVER_STOP_CHAR { 0xA };
     // Wait up to a maximum of 3 seconds for serial input
     static constexpr const uint8_t DRIVER_TIMEOUT {3};
-    // Maximum buffer for sending/receving.
-    static constexpr const uint8_t DRIVER_LEN {64};
+    // Maximum command length
+    static constexpr const uint8_t DRIVER_CMD {64};
+    // Maximum buffer for receving.
+    static constexpr const uint16_t DRIVER_RES {512};
 
 };

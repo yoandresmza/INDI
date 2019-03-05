@@ -26,6 +26,7 @@
 #include <termio.h>
 #include <cstring>
 #include <memory>
+#include <regex>
 
 #include "sitech.h"
 #include "indicom.h"
@@ -97,6 +98,8 @@ SiTech::SiTech()
     m_Status[ST_HOMING_SECONDARY] = false;
     m_Status[ST_ROTATOR_GOTO] = false;
     m_Status[ST_TRACKING_OFFSET] = false;
+
+    m_Data.reserve(MOUNT_N);
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -133,6 +136,18 @@ bool SiTech::initProperties()
     IUFillSwitch(&TrackModeS[TRACK_CUSTOM], "TRACK_CUSTOM", "Custom", ISS_OFF);
     IUFillSwitchVector(&TrackModeSP, TrackModeS, 4, getDeviceName(), "TELESCOPE_TRACK_MODE", "Track Mode", MAIN_CONTROL_TAB, IP_RW, ISR_ATMOST1, 0, IPS_IDLE);
 
+    // Sync Options
+    IUFillSwitch(&SyncOptionS[SYNC_INIT], "SYNC_INIT", "Init", ISS_OFF);
+    IUFillSwitch(&SyncOptionS[SYNC_OFFSET], "SYNC_OFFSET", "Offset", ISS_ON);
+    IUFillSwitch(&SyncOptionS[SYNC_LOAD_CALIBRATION], "SYNC_LOAD_CALIBRATION", "Load Calibration", ISS_OFF);
+    IUFillSwitchVector(&SyncOptionSP, SyncOptionS, 3, getDeviceName(), "TELESCOPE_SYNC_OPTIONS", "Sync Options", MAIN_CONTROL_TAB, IP_RW, ISR_1OFMANY, 0, IPS_IDLE);
+
+    // Park Options
+    IUFillSwitch(&ParkGotoS[PARK_1], "PARK_1", "Park 1", ISS_ON);
+    IUFillSwitch(&ParkGotoS[PARK_2], "PARK_2", "Park 2", ISS_OFF);
+    IUFillSwitch(&ParkGotoS[PARK_3], "PARK_3", "Park 3", ISS_OFF);
+    IUFillSwitchVector(&ParkGotoSP, ParkGotoS, 3, getDeviceName(), "TELESCOPE_PARK_GOTO", "Park Setting", SITE_TAB, IP_RW, ISR_1OFMANY, 0, IPS_IDLE);
+
     // Custom Tracking Rate
     IUFillNumber(&TrackRateN[0],"TRACK_RATE_RA","RA (arcsecs/s)","%.6f",-16384.0, 16384.0, 0.000001, 15.041067);
     IUFillNumber(&TrackRateN[1],"TRACK_RATE_DE","DE (arcsecs/s)","%.6f",-16384.0, 16384.0, 0.000001, 0);
@@ -162,8 +177,12 @@ bool SiTech::updateProperties()
     {
         getStartupValues();
 
+        defineSwitch(&SyncOptionSP);
+
         defineSwitch(&TrackModeSP);
         defineNumber(&TrackRateNP);
+
+        defineSwitch(&ParkGotoSP);
 
         defineNumber(&GuideNSNP);
         defineNumber(&GuideWENP);
@@ -171,8 +190,12 @@ bool SiTech::updateProperties()
     }
     else
     {
+        deleteProperty(SyncOptionSP.name);
+
         deleteProperty(TrackModeSP.name);
         deleteProperty(TrackRateNP.name);
+
+        deleteProperty(ParkGotoSP.name);
 
         deleteProperty(GuideNSNP.name);
         deleteProperty(GuideWENP.name);
@@ -187,7 +210,7 @@ bool SiTech::updateProperties()
 ///////////////////////////////////////////////////////////////////////////
 bool SiTech::Handshake()
 {
-    char res[DRIVER_LEN]={0};
+    char res[DRIVER_RES]={0};
 
     if (sendCommand("ReadScopeStatus", res) == false)
         return false;
@@ -211,11 +234,76 @@ bool SiTech::Handshake()
 }
 
 ///////////////////////////////////////////////////////////////////////////
-///
+/* All numbers are separated by a ';'
+     * First is an integer, with bits in it as follows:
+     * (001) Bit  0 = true if initialized
+     * (002) Bit  1 = true if tracking
+     * (004) Bit  2 = true if slewing, or slew settling time
+     * (008) Bit  3 = true if Parking
+     * (016) Bit  4 = true if Parked
+     * (032) Bit  5 = true if "looking east" (GEM scope)
+     * (064) Bit  6 = true if either servo is in manual (blinky mode)
+     * (128) Bit  7 = true if Comm to Controller is bad
+     * (256) Bit  8 = true if Limit Switch + in Primary Axis Activated
+     * (512) Bit  9 = true if Limit Switch - in Primary Axis Activated
+     *(1024) Bit 10 = true if Limit Switch + in Secondary Axis Activated
+     *(2048) Bit 11 = true if Limit Switch - in Secondary Axis Activated
+     *(4096) Bit 12 = true if Home Switch Primary Axis Activated
+     *(8192) Bit 13 = true if Home Switch Secondary Axis Activated
+    *(16384) Bit 14 = true if HandPad Pan Mode
+    *(32768) Bit 15 = true if HandPad Guide Mode
+    * Next is RA (hours)
+    * Next is Dec (Hours)
+    * Next is Altitude (degs)
+    * Next is Azimuth (degs)
+    * Next is Primary axisPositionDegsPrimary
+    * Next is Primary axisPositionDegsSecondary
+    * Next is Scope Sidereal Time (hours).
+    * Next is Scope Julian Day.
+    * Next is ScopeTime (hours)
+    * Next is a possible string message.
+*/
 ///////////////////////////////////////////////////////////////////////////
 bool SiTech::parseStatusResponse(const char *response)
 {
-    return false;
+    std::vector<std::string> result = split(response, ";");
+    if (result.size() < 10)
+    {
+        LOG_WARN("Received wrong number of detailed mount data. Retrying...");
+        return false;
+    }
+
+    if (result == m_LastMountResponse)
+        return true;
+
+    // Update Mount Status
+    uint32_t mountStatus = std::stoi(result[0]);
+    for (auto &x : m_Status)
+    {
+        x.second = (x.first & mountStatus);
+    }
+
+    // Update Mount Data
+    m_Data[MOUNT_RA] = std::stod(result[1]);
+    m_Data[MOUNT_DE] = std::stod(result[2]);
+    m_Data[MOUNT_AT] = std::stod(result[3]);
+    m_Data[MOUNT_AZ] = std::stod(result[4]);
+
+    m_Data[MOUNT_AXIS_PRIMARY] = std::stod(result[5]);
+    m_Data[MOUNT_AXIS_SECONDARY] = std::stod(result[6]);
+
+    m_Data[MOUNT_LST] = std::stod(result[7]);
+    m_Data[MOUNT_JD] = std::stod(result[8]);
+    m_Data[MOUNT_LT] = std::stod(result[9]);
+
+    // Update Mount Message, if any.
+    if (result.size() > 10)
+    {
+        m_Message = result[10];
+        LOGF_DEBUG("Mount message: %s", m_Message.c_str());
+    }
+
+    return true;
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -223,13 +311,31 @@ bool SiTech::parseStatusResponse(const char *response)
 ///////////////////////////////////////////////////////////////////////////
 bool SiTech::ReadScopeStatus()
 {
-    char res[DRIVER_LEN]={0};
+    char res[DRIVER_RES]={0};
 
     if (sendCommand("ReadScopeStatus", res) == false)
         return false;
 
     if (parseStatusResponse(res) == false)
         return false;
+
+    if (TrackState == SCOPE_SLEWING)
+    {
+        if (m_Status[ST_TRACKING])
+        {
+            TrackState = SCOPE_TRACKING;
+            LOG_INFO("Slew is complete. Tracking...");
+        }
+    }
+    else if (TrackState == SCOPE_PARKING)
+    {
+        if (m_Status[ST_PARKED])
+        {
+            SetParked(true);
+        }
+    }
+
+    NewRaDec(m_Data[MOUNT_RA], m_Data[MOUNT_DE]);
 
     return true;
 }
@@ -239,15 +345,39 @@ bool SiTech::ReadScopeStatus()
 ///////////////////////////////////////////////////////////////////////////
 bool SiTech::Goto(double ra , double de)
 {
-    return false;
+    char cmd[DRIVER_CMD]={0}, res[DRIVER_RES]={0};
+    snprintf(cmd, DRIVER_CMD, "Goto %f %f", ra, de);
+
+    if (sendCommand(cmd, res) == false)
+        return false;
+
+    if (m_Message != "Accepted")
+    {
+        LOGF_ERROR("Goto failed: %s", m_Message.c_str());
+        return false;
+    }
+
+    return true;
 }
 
 ///////////////////////////////////////////////////////////////////////////
 ///
 ///////////////////////////////////////////////////////////////////////////
-bool SiTech::Sync(double ra, double dec)
+bool SiTech::Sync(double ra, double de)
 {
-    return false;
+    char cmd[DRIVER_CMD]={0}, res[DRIVER_RES]={0};
+    snprintf(cmd, DRIVER_CMD, "Sync %f %f %d", ra, de, IUFindOnSwitchIndex(&SyncOptionSP));
+
+    if (sendCommand(cmd, res) == false)
+        return false;
+
+    if (m_Message != "Accepted")
+    {
+        LOGF_ERROR("Sync failed: %s", m_Message.c_str());
+        return false;
+    }
+
+    return true;
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -255,7 +385,19 @@ bool SiTech::Sync(double ra, double dec)
 ///////////////////////////////////////////////////////////////////////////
 bool SiTech::Park()
 {
-    return false;
+    char cmd[DRIVER_CMD]={0}, res[DRIVER_RES]={0};
+    snprintf(cmd, DRIVER_CMD, "Park %d", IUFindOnSwitchIndex(&ParkGotoSP));
+
+    if (sendCommand(cmd, res) == false)
+        return false;
+
+    if (m_Message != "Park")
+    {
+        LOGF_ERROR("Park failed: %s", m_Message.c_str());
+        return false;
+    }
+
+    return true;
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -332,6 +474,24 @@ bool SiTech::ISNewSwitch (const char *dev, const char *name, ISState *states, ch
 {
     if(strcmp(dev,getDeviceName())==0)
     {
+        // Sync Options
+        if (!strcmp(SyncOptionSP.name, name))
+        {
+            IUUpdateSwitch(&SyncOptionSP, states, names, n);
+            SyncOptionSP.s = IPS_OK;
+            IDSetSwitch(&SyncOptionSP, nullptr);
+            return true;
+        }
+
+        // Park Goto Settings
+        if (!strcmp(ParkGotoSP.name, name))
+        {
+            IUUpdateSwitch(&ParkGotoSP, states, names, n);
+            ParkGotoSP.s = IPS_OK;
+            IDSetSwitch(&ParkGotoSP, nullptr);
+            return true;
+        }
+
         // Tracking Mode
         if (!strcmp(TrackModeSP.name, name))
         {
@@ -437,13 +597,13 @@ bool SiTech::getStartupValues()
 bool SiTech::sendCommand(const char * cmd, char * res, int cmd_len, int res_len)
 {
     int nbytes_written = 0, nbytes_read = 0, rc = -1;
-    char fullCommand[DRIVER_LEN]={0};
+    char fullCommand[DRIVER_RES]={0};
 
     tcflush(PortFD, TCIOFLUSH);
 
     if (cmd_len > 0)
     {
-        char hex_cmd[DRIVER_LEN * 3] = {0};
+        char hex_cmd[DRIVER_RES * 3] = {0};
         hexDump(hex_cmd, cmd, cmd_len);
         LOGF_DEBUG("CMD <%s>", hex_cmd);
         memcpy(fullCommand, cmd, cmd_len);
@@ -477,7 +637,7 @@ bool SiTech::sendCommand(const char * cmd, char * res, int cmd_len, int res_len)
     if (res_len > 0)
         rc = tty_read(PortFD, res, res_len, DRIVER_TIMEOUT, &nbytes_read);
     else
-        rc = tty_nread_section(PortFD, res, DRIVER_LEN, DRIVER_STOP_CHAR, DRIVER_TIMEOUT, &nbytes_read);
+        rc = tty_nread_section(PortFD, res, DRIVER_RES, DRIVER_STOP_CHAR, DRIVER_TIMEOUT, &nbytes_read);
 
     if (rc != TTY_OK)
     {
@@ -492,7 +652,7 @@ bool SiTech::sendCommand(const char * cmd, char * res, int cmd_len, int res_len)
 
     if (res_len > 0)
     {
-        char hex_res[DRIVER_LEN * 3] = {0};
+        char hex_res[DRIVER_RES * 3] = {0};
         hexDump(hex_res, res, res_len);
         LOGF_DEBUG("RES <%s>", hex_res);
     }
@@ -516,4 +676,30 @@ void SiTech::hexDump(char * buf, const char * data, int size)
 
     if (size > 0)
         buf[3 * size - 1] = '\0';
+}
+
+///////////////////////////////////////////////////////////////////////////
+///
+///////////////////////////////////////////////////////////////////////////
+std::vector<std::string> SiTech::split(const std::string &input, const std::string &regex)
+{
+    // passing -1 as the submatch index parameter performs splitting
+    std::regex re(regex);
+    std::sregex_token_iterator
+    first{input.begin(), input.end(), re, -1},
+          last;
+    return {first, last};
+}
+
+///////////////////////////////////////////////////////////////////////////
+///
+///////////////////////////////////////////////////////////////////////////
+bool SiTech::saveConfigItems(FILE *fp)
+{
+    INDI::Telescope::saveConfigItems(fp);
+
+    IUSaveConfigSwitch(fp, &SyncOptionSP);
+    IUSaveConfigSwitch(fp, &ParkGotoSP);
+
+    return true;
 }
