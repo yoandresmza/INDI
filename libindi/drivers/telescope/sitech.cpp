@@ -332,6 +332,7 @@ bool SiTech::ReadScopeStatus()
     }
 
     NewRaDec(m_Data[MOUNT_RA], m_Data[MOUNT_DE]);
+    setPierSide(m_Status[ST_LOOKING_EAST] ? PIER_EAST : PIER_WEST);
 
     return true;
 }
