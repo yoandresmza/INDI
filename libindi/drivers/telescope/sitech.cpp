@@ -79,7 +79,9 @@ SiTech::SiTech()
 {
     setVersion(0, 1);
 
-    SetTelescopeCapability(TELESCOPE_CAN_PARK | TELESCOPE_CAN_SYNC | TELESCOPE_CAN_GOTO | TELESCOPE_CAN_ABORT,4);
+    SetTelescopeCapability(TELESCOPE_CAN_PARK | TELESCOPE_CAN_SYNC | TELESCOPE_CAN_GOTO | TELESCOPE_CAN_ABORT |
+                           TELESCOPE_HAS_TRACK_MODE | TELESCOPE_CAN_CONTROL_TRACK | TELESCOPE_HAS_TRACK_RATE |
+                           TELESCOPE_HAS_LOCATION | TELESCOPE_HAS_TIME, 4);
     setTelescopeConnection(CONNECTION_TCP);
 
     m_Status[ST_INITIALIZED] = false;
@@ -130,11 +132,10 @@ bool SiTech::initProperties()
     IUFillSwitchVector(&SlewRateSP, SlewRateS, 4, getDeviceName(), "TELESCOPE_SLEW_RATE", "Slew Rate", MOTION_TAB, IP_RW, ISR_1OFMANY, 0, IPS_IDLE);
 
     // Tracking Mode
-    IUFillSwitch(&TrackModeS[TRACK_SIDEREAL], "TRACK_SIDEREAL", "Sidereal", ISS_OFF);
-    IUFillSwitch(&TrackModeS[TRACK_SOLAR], "TRACK_SOLAR", "Solar", ISS_OFF);
-    IUFillSwitch(&TrackModeS[TRACK_LUNAR], "TRACK_LUNAR", "Lunar", ISS_OFF);
-    IUFillSwitch(&TrackModeS[TRACK_CUSTOM], "TRACK_CUSTOM", "Custom", ISS_OFF);
-    IUFillSwitchVector(&TrackModeSP, TrackModeS, 4, getDeviceName(), "TELESCOPE_TRACK_MODE", "Track Mode", MAIN_CONTROL_TAB, IP_RW, ISR_ATMOST1, 0, IPS_IDLE);
+    AddTrackMode("TRACK_SIDEREAL", "Sidereal", true);
+    AddTrackMode("TRACK_SOLAR", "Solar", false);
+    AddTrackMode("TRACK_LUNAR", "Lunar", false);
+    AddTrackMode("TRACK_CUSTOM", "Custom", false);
 
     // Sync Options
     IUFillSwitch(&SyncOptionS[SYNC_INIT], "SYNC_INIT", "Init", ISS_OFF);
@@ -147,11 +148,6 @@ bool SiTech::initProperties()
     IUFillSwitch(&ParkGotoS[PARK_2], "PARK_2", "Park 2", ISS_OFF);
     IUFillSwitch(&ParkGotoS[PARK_3], "PARK_3", "Park 3", ISS_OFF);
     IUFillSwitchVector(&ParkGotoSP, ParkGotoS, 3, getDeviceName(), "TELESCOPE_PARK_GOTO", "Park Setting", SITE_TAB, IP_RW, ISR_1OFMANY, 0, IPS_IDLE);
-
-    // Custom Tracking Rate
-    IUFillNumber(&TrackRateN[0],"TRACK_RATE_RA","RA (arcsecs/s)","%.6f",-16384.0, 16384.0, 0.000001, 15.041067);
-    IUFillNumber(&TrackRateN[1],"TRACK_RATE_DE","DE (arcsecs/s)","%.6f",-16384.0, 16384.0, 0.000001, 0);
-    IUFillNumberVector(&TrackRateNP, TrackRateN,2,getDeviceName(),"TELESCOPE_TRACK_RATE","Track Rates", MAIN_CONTROL_TAB, IP_RW,60,IPS_IDLE);
 
     TrackState=SCOPE_IDLE;
 
@@ -405,15 +401,78 @@ bool SiTech::Park()
 ///////////////////////////////////////////////////////////////////////////
 bool SiTech::UnPark()
 {    
-    return false;
+    char cmd[DRIVER_CMD]={0}, res[DRIVER_RES]={0};
+    snprintf(cmd, DRIVER_CMD, "Park");
+
+    if (sendCommand(cmd, res) == false)
+        return false;
+
+    if (m_Message != "UnPark")
+    {
+        LOGF_ERROR("UnPark failed: %s", m_Message.c_str());
+        return false;
+    }
+
+    return true;
 }
 
 ///////////////////////////////////////////////////////////////////////////
 ///
 ///////////////////////////////////////////////////////////////////////////
-bool SiTech::setTracking(bool enable, bool isSidereal, double raRate, double deRate)
+bool SiTech::SetTrackEnabled(bool enabled)
+{
+    return setInternalTracking(enabled, IUFindOnSwitchIndex(&TrackModeSP) == TRACK_SIDEREAL,
+                               TrackRateN[AXIS_RA].value, TrackRateN[AXIS_DE].value);
+}
+
+///////////////////////////////////////////////////////////////////////////
+///
+///////////////////////////////////////////////////////////////////////////
+bool SiTech::SetTrackRate(double raRate, double deRate)
+{
+    return setInternalTracking(TrackState == SCOPE_TRACKING, IUFindOnSwitchIndex(&TrackModeSP) == TRACK_SIDEREAL,
+                               raRate, deRate);
+}
+
+///////////////////////////////////////////////////////////////////////////
+///
+///////////////////////////////////////////////////////////////////////////
+bool SiTech::SetTrackMode(uint8_t mode)
+{
+    bool isSidereal = (mode == TRACK_SIDEREAL);
+    double dRA = TRACKRATE_SIDEREAL, dDE = 0;
+
+    if (mode == TRACK_SOLAR)
+        dRA = TRACKRATE_SOLAR;
+    else if (mode == TRACK_LUNAR)
+        dRA = TRACKRATE_LUNAR;
+    else if (mode == TRACK_CUSTOM)
+    {
+        dRA = TrackRateN[AXIS_RA].value;
+        dDE = TrackRateN[AXIS_DE].value;
+    }
+
+    return setInternalTracking(true, isSidereal, dRA, dDE);
+}
+
+///////////////////////////////////////////////////////////////////////////
+///
+///////////////////////////////////////////////////////////////////////////
+bool SiTech::setInternalTracking(bool enable, bool isSidereal, double raRate, double deRate)
 {    
-    return false;
+    char cmd[DRIVER_CMD]={0}, res[DRIVER_RES]={0};
+    snprintf(cmd, DRIVER_CMD, "SetTrackMode %d %d %f %f", enable ? 1 : 0, isSidereal ? 1 : 0, raRate, deRate);
+
+    if (sendCommand(cmd, res) == false)
+        return false;
+
+    if (m_Message != "SetTrackMode")
+    {
+        LOGF_ERROR("SetTrackMode failed: %s", m_Message.c_str());
+        return false;
+    }
+
+    return true;
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -424,29 +483,7 @@ bool SiTech::ISNewNumber (const char *dev, const char *name, double values[], ch
     //  first check if it's for our device
 
     if(strcmp(dev,getDeviceName())==0)
-    {
-        // Tracking Rate
-        if (!strcmp(name, TrackRateNP.name))
-        {
-            IUUpdateNumber(&TrackRateNP, values, names, n);
-            if (IUFindOnSwitchIndex(&TrackModeSP) != TRACK_CUSTOM)
-            {
-                DEBUG(INDI::Logger::DBG_ERROR, "Can only set tracking rate if track mode is custom.");
-                TrackRateNP.s = IPS_ALERT;
-            }
-            else
-            {
-                if (setTracking(true, false, TrackRateN[AXIS_RA].value, TrackRateN[AXIS_DE].value))
-                    TrackRateNP.s = IPS_OK;
-                else
-                    TrackRateNP.s = IPS_ALERT;
-                IDSetNumber(&TrackRateNP, nullptr);
-            }
-
-            IDSetNumber(&TrackRateNP, nullptr);
-            return true;
-        }
-
+    {        
         // Guide Rate
         if(!strcmp(name,"GUIDE_RATE"))
         {

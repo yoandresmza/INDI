@@ -53,6 +53,13 @@ public:
     virtual bool Abort() override;
 
     ///////////////////////////////////////////////////////////////////////////////
+    /// Tracking Commands
+    ///////////////////////////////////////////////////////////////////////////////
+    virtual bool SetTrackEnabled(bool enabled) override;
+    virtual bool SetTrackRate(double raRate, double deRate) override;
+    virtual bool SetTrackMode(uint8_t mode) override;
+
+    ///////////////////////////////////////////////////////////////////////////////
     /// GOTO Commands
     ///////////////////////////////////////////////////////////////////////////////
     virtual bool Goto(double ra, double de) override;
@@ -69,7 +76,7 @@ public:
     virtual IPState GuideWest(uint32_t ms) override;
 
     private:
-    bool setTracking(bool enable, bool isSidereal, double raRate, double deRate);
+    bool setInternalTracking(bool enable, bool isSidereal, double raRate, double deRate);
 
     ///////////////////////////////////////////////////////////////////////////////
     /// Utility Functions
